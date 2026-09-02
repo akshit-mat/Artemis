@@ -1,0 +1,23 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "productName": "artemis-desktop",
+  "version": "0.1.0",
+  "identifier": "com.artemis.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "ARTEMIS",
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}
