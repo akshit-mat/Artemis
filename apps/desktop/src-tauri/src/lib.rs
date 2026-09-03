@@ -4,13 +4,17 @@ use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use std::thread;
+use std::time::Duration;
+use tauri::{Manager, State, Emitter};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
     JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOBOBJECT_BASIC_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
-use windows::Win32::System::Threading::PROCESS_INFORMATION;
+use windows::Win32::Foundation::CloseHandle;
 use std::os::windows::io::AsRawHandle;
 use std::io::{BufRead, BufReader};
 
@@ -34,11 +38,55 @@ fn get_backend_handle(state: State<AppState>) -> Option<BackendHandle> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(AppState {
             backend_handle: Mutex::new(None),
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            
+            let show_i = MenuItem::with_id(app, "show", "Show Artemis", true, None::<&str>)?;
+            let hide_i = MenuItem::with_id(app, "hide", "Hide Artemis", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
+
+            let _tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .icon(app.default_window_icon().unwrap().clone())
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "hide" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button, .. } = event {
+                        if button == MouseButton::Left {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
             
             // 1. Generate 256-bit token
             let mut token_bytes = [0u8; 32];
@@ -47,73 +95,102 @@ pub fn run() {
             
             let token_env = token.clone();
             
-            // 2. Spawn python sidecar
-            // In dev mode, we use the venv python. In prod, this would be the sidecar binary.
-            let current_dir = env::current_dir().unwrap();
-            let backend_dir = current_dir.join("../../backend");
-            let python_exe = backend_dir.join(".venv/Scripts/python.exe");
-            
-            let mut cmd = Command::new(python_exe);
-            cmd.arg("-m")
-               .arg("artemis.main")
-               .arg("--port")
-               .arg("0")
-               .arg("--host")
-               .arg("127.0.0.1")
-               .env("ARTEMIS_AUTH_TOKEN", token_env)
-               .stdout(Stdio::piped())
-               .creation_flags(0x08000000); // CREATE_NO_WINDOW
-               
-            let mut child = cmd.spawn().expect("Failed to spawn python sidecar");
-            
-            // 3. Assign to Windows Job Object
-            unsafe {
-                let job = CreateJobObjectW(None, None).expect("Failed to create job object");
+            // 2. Supervisor Thread
+            thread::spawn(move || {
+                let current_dir = env::current_dir().unwrap();
+                let backend_dir = current_dir.join("../../backend");
+                let python_exe = backend_dir.join(".venv/Scripts/python.exe");
                 
-                let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let mut retries = 0;
+                let max_retries = 3;
+                let mut previous_job: Option<windows::Win32::Foundation::HANDLE> = None;
                 
-                SetInformationJobObject(
-                    job,
-                    JobObjectExtendedLimitInformation,
-                    &info as *const _ as *const std::ffi::c_void,
-                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-                ).expect("Failed to set job object info");
-                
-                // Get HANDLE from child process
-                let handle_raw = child.as_raw_handle();
-                let process_handle = windows::Win32::Foundation::HANDLE(handle_raw as *mut _);
-                
-                AssignProcessToJobObject(job, process_handle).expect("Failed to assign process to job object");
-                
-                // Leak the job handle so it stays open as long as the parent process lives
-                std::mem::forget(job);
-            }
-            
-            // 4. Read handshake from stdout
-            let stdout = child.stdout.take().unwrap();
-            let mut reader = BufReader::new(stdout);
-            let mut line = String::new();
-            reader.read_line(&mut line).expect("Failed to read handshake");
-            
-            #[derive(serde::Deserialize)]
-            struct Handshake {
-                port: u16,
-                pid: u32,
-                version: String,
-            }
-            
-            let handshake: Handshake = serde_json::from_str(&line).expect("Invalid handshake JSON");
-            
-            // 5. Store backend handle
-            let backend_handle = BackendHandle {
-                port: handshake.port,
-                token,
-                origin: "http://tauri.localhost".to_string(), // In dev we'll allow http://localhost:1420 as well via backend middleware
-            };
-            
-            let state: State<AppState> = handle.state();
-            *state.backend_handle.lock().unwrap() = Some(backend_handle);
+                loop {
+                    let mut cmd = Command::new(python_exe.clone());
+                    cmd.arg("-m")
+                       .arg("artemis.main")
+                       .arg("--port")
+                       .arg("0")
+                       .arg("--host")
+                       .arg("127.0.0.1")
+                       .env("ARTEMIS_AUTH_TOKEN", token_env.clone())
+                       .stdout(Stdio::piped())
+                       .creation_flags(0x08000000); // CREATE_NO_WINDOW
+                       
+                    let mut child = match cmd.spawn() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("Failed to spawn python sidecar: {}", e);
+                            break;
+                        }
+                    };
+                    
+                    // 3. Assign to Windows Job Object
+                    unsafe {
+                        if let Some(old_job) = previous_job {
+                            let _ = CloseHandle(old_job);
+                        }
+                        
+                        let job = CreateJobObjectW(None, windows::core::PCWSTR::null()).expect("Failed to create job object");
+                        
+                        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+                        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                        
+                        SetInformationJobObject(
+                            job,
+                            JobObjectExtendedLimitInformation,
+                            &info as *const _ as *const std::ffi::c_void,
+                            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                        ).expect("Failed to set job object info");
+                        
+                        let handle_raw = child.as_raw_handle();
+                        let process_handle = windows::Win32::Foundation::HANDLE(handle_raw as *mut _);
+                        
+                        AssignProcessToJobObject(job, process_handle).expect("Failed to assign process to job object");
+                        
+                        previous_job = Some(job);
+                    }
+                    
+                    // 4. Read handshake from stdout
+                    let stdout = child.stdout.take().unwrap();
+                    let mut reader = BufReader::new(stdout);
+                    let mut line = String::new();
+                    if let Ok(bytes) = reader.read_line(&mut line) {
+                        if bytes > 0 {
+                            #[derive(serde::Deserialize)]
+                            struct Handshake {
+                                port: u16,
+                                pid: u32,
+                                version: String,
+                            }
+                            
+                            if let Ok(handshake) = serde_json::from_str::<Handshake>(&line) {
+                                let backend_handle = BackendHandle {
+                                    port: handshake.port,
+                                    token: token_env.clone(),
+                                    origin: "http://tauri.localhost".to_string(), 
+                                };
+                                
+                                let state: State<AppState> = handle.state();
+                                *state.backend_handle.lock().unwrap() = Some(backend_handle);
+                                
+                                let _ = handle.emit("backend-ready", ());
+                            }
+                        }
+                    }
+                    
+                    // 5. Wait for child to exit
+                    let _ = child.wait();
+                    
+                    retries += 1;
+                    if retries > max_retries {
+                        let _ = handle.emit("backend-fatal", ());
+                        break;
+                    }
+                    
+                    thread::sleep(Duration::from_millis(500 * (1 << retries)));
+                }
+            });
             
             Ok(())
         })

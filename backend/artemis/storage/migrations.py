@@ -1,24 +1,23 @@
 import os
-import sqlite3
 from pathlib import Path
-from .database import get_db_connection
-from ..obs.logging import log
+from .database import Database
+from ..obs.logging import get_logger
 
+log = get_logger("migrations")
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
-def init_db():
-    conn = get_db_connection()
+def init_db(db: Database):
     try:
-        with conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS schema_version (
-                    version INTEGER PRIMARY KEY
-                )
-            """)
+        # Schema version table
+        db.execute_write_sync("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY
+            )
+        """)
         
-        cursor = conn.execute("SELECT MAX(version) as v FROM schema_version")
-        row = cursor.fetchone()
-        current_version = row['v'] if row and row['v'] is not None else 0
+        # Get current version
+        rows = db.query_sync("SELECT MAX(version) as v FROM schema_version")
+        current_version = rows[0]['v'] if rows and rows[0]['v'] is not None else 0
         
         log.info("migration_start", current_version=current_version)
         
@@ -28,7 +27,6 @@ def init_db():
         migrations = sorted([f for f in os.listdir(MIGRATIONS_DIR) if f.endswith('.sql')])
         
         for migration_file in migrations:
-            # Extract version from filename like 001_initial.sql
             try:
                 version = int(migration_file.split('_')[0])
             except ValueError:
@@ -39,10 +37,10 @@ def init_db():
                 with open(MIGRATIONS_DIR / migration_file, 'r', encoding='utf-8') as f:
                     sql = f.read()
                 
-                with conn:
-                    conn.executescript(sql)
-                    conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+                script_with_version = f"{sql}\nINSERT INTO schema_version (version) VALUES ({version});"
+                db.execute_script_sync(script_with_version)
                     
         log.info("migration_complete")
-    finally:
-        conn.close()
+    except Exception as e:
+        log.error("migration_failed", error=str(e))
+        raise

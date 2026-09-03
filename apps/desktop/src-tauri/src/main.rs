@@ -4,5 +4,5 @@
 )]
 
 fn main() {
-    artemis_desktop_lib::run();
+    artemis_desktop::run();
 }

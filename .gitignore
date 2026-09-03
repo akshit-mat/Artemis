@@ -17,3 +17,6 @@ src-tauri/target/
 # OS
 .DS_Store
 Thumbs.db
+
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/

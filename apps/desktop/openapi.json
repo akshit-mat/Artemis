@@ -1,0 +1,253 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ARTEMIS Phase 1",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentDeltaData": {
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "text"
+        ],
+        "title": "AgentDeltaData",
+        "type": "object"
+      },
+      "AgentErrorData": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "recoverable": {
+            "title": "Recoverable",
+            "type": "boolean"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Correlation Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "recoverable"
+        ],
+        "title": "AgentErrorData",
+        "type": "object"
+      },
+      "AgentMessageData": {
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "finish_reason": {
+            "title": "Finish Reason",
+            "type": "string"
+          },
+          "steps_used": {
+            "title": "Steps Used",
+            "type": "integer"
+          },
+          "tokens": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Tokens",
+            "type": "object"
+          },
+          "incomplete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Incomplete"
+          }
+        },
+        "required": [
+          "message_id",
+          "role",
+          "content",
+          "finish_reason",
+          "steps_used",
+          "tokens"
+        ],
+        "title": "AgentMessageData",
+        "type": "object"
+      },
+      "AssistantStateData": {
+        "properties": {
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "intensity": {
+            "title": "Intensity",
+            "type": "number"
+          }
+        },
+        "required": [
+          "state",
+          "intensity"
+        ],
+        "title": "AssistantStateData",
+        "type": "object"
+      },
+      "SessionReadyData": {
+        "properties": {
+          "last_seq": {
+            "title": "Last Seq",
+            "type": "integer"
+          },
+          "assistant_state": {
+            "$ref": "#/components/schemas/AssistantStateData"
+          },
+          "model": {
+            "additionalProperties": true,
+            "title": "Model",
+            "type": "object"
+          },
+          "pending_approvals": {
+            "items": {},
+            "title": "Pending Approvals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "last_seq",
+          "assistant_state",
+          "model",
+          "pending_approvals"
+        ],
+        "title": "SessionReadyData",
+        "type": "object"
+      },
+      "SystemEchoData": {
+        "properties": {
+          "echoed_text": {
+            "title": "Echoed Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "echoed_text"
+        ],
+        "title": "SystemEchoData",
+        "type": "object"
+      },
+      "WSEnvelope": {
+        "properties": {
+          "v": {
+            "default": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Seq"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ts",
+          "type",
+          "session_id",
+          "data"
+        ],
+        "title": "WSEnvelope",
+        "type": "object"
+      }
+    }
+  }
+}

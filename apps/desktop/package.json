@@ -3,10 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@9.1.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "generate:api": "cd ../../backend && .venv\\Scripts\\python scripts\\generate_openapi.py && cd ../apps/desktop && npx openapi-typescript openapi.json -o src/api/types.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
