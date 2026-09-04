@@ -16,7 +16,8 @@ use windows::Win32::System::JobObjects::{
 };
 use windows::Win32::Foundation::CloseHandle;
 use std::os::windows::io::AsRawHandle;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 
 pub struct JobObjectGuard {
     handle: windows::Win32::Foundation::HANDLE,
@@ -76,6 +77,28 @@ pub struct AppState {
 fn get_backend_handle(state: State<AppState>) -> Option<BackendHandle> {
     let handle = state.backend_handle.lock().unwrap();
     handle.clone()
+}
+
+fn check_health(port: u16, token: &str) -> bool {
+    if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let request = format!(
+            "GET /health HTTP/1.1\r\n\
+             Host: tauri.localhost\r\n\
+             Authorization: Bearer {}\r\n\
+             Connection: close\r\n\
+             \r\n",
+             token
+        );
+        if stream.write_all(request.as_bytes()).is_ok() {
+            let mut response = String::new();
+            if stream.read_to_string(&mut response).is_ok() {
+                return response.contains("HTTP/1.1 200 OK") || response.contains("HTTP/1.0 200 OK");
+            }
+        }
+    }
+    false
 }
 
 pub fn run() {
@@ -237,7 +260,9 @@ pub fn run() {
                         version: String,
                     }
 
+                    let backend_port;
                     if let Ok(handshake) = serde_json::from_str::<Handshake>(handshake_line.trim()) {
+                        backend_port = handshake.port;
                         let backend_handle = BackendHandle {
                             port: handshake.port,
                             token: token_env.clone(),
@@ -261,8 +286,27 @@ pub fn run() {
                         continue;
                     }
 
-                    // 5. Wait for child to exit (normal: sidecar ran and terminated)
-                    let _ = child.wait();
+                    // 5. Supervision loop (Wait for child to exit OR health check failure)
+                    let mut consecutive_failures = 0;
+                    loop {
+                        if let Ok(Some(_status)) = child.try_wait() {
+                            break;
+                        }
+
+                        thread::sleep(Duration::from_secs(5));
+
+                        if check_health(backend_port, &token_env) {
+                            consecutive_failures = 0;
+                        } else {
+                            consecutive_failures += 1;
+                            if consecutive_failures >= 3 {
+                                eprintln!("Health check failed 3 times; killing backend");
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                break;
+                            }
+                        }
+                    }
 
                     retries += 1;
                     if retries > max_retries {
@@ -322,5 +366,57 @@ mod tests {
         }
 
         assert!(killed, "Child process was not killed after Job Object was dropped");
+    }
+
+    #[test]
+    fn test_check_health_success() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0; 1024];
+                let _ = stream.read(&mut buf); // read request
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+            }
+        });
+
+        assert!(check_health(port, "test-token"), "Health check should succeed with 200 OK");
+    }
+
+    #[test]
+    fn test_check_health_failure_bad_status() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\n\r\n");
+            }
+        });
+
+        assert!(!check_health(port, "test-token"), "Health check should fail on 500");
+    }
+
+    #[test]
+    fn test_check_health_failure_timeout() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0; 1024];
+                let _ = stream.read(&mut buf);
+                // Intentionally wait and do not respond to trigger timeout
+                thread::sleep(Duration::from_secs(3));
+            }
+        });
+
+        assert!(!check_health(port, "test-token"), "Health check should fail on timeout");
     }
 }
