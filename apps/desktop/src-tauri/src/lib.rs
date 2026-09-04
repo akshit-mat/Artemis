@@ -18,6 +18,49 @@ use windows::Win32::Foundation::CloseHandle;
 use std::os::windows::io::AsRawHandle;
 use std::io::{BufRead, BufReader};
 
+pub struct JobObjectGuard {
+    handle: windows::Win32::Foundation::HANDLE,
+}
+
+impl JobObjectGuard {
+    pub fn new() -> Result<Self, String> {
+        unsafe {
+            let job = CreateJobObjectW(None, windows::core::PCWSTR::null())
+                .map_err(|e| format!("Failed to create job object: {}", e))?;
+
+            let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ).map_err(|e| format!("Failed to set job object info: {}", e))?;
+
+            Ok(Self { handle: job })
+        }
+    }
+
+    pub fn assign_process(&self, process: &std::process::Child) -> Result<(), String> {
+        unsafe {
+            let handle_raw = process.as_raw_handle();
+            let process_handle = windows::Win32::Foundation::HANDLE(handle_raw as *mut _);
+
+            AssignProcessToJobObject(self.handle, process_handle)
+                .map_err(|e| format!("Failed to assign process to job object: {}", e))
+        }
+    }
+}
+
+impl Drop for JobObjectGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 pub struct BackendHandle {
     port: u16,
@@ -49,7 +92,7 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
-            
+
             let show_i = MenuItem::with_id(app, "show", "Show Artemis", true, None::<&str>)?;
             let hide_i = MenuItem::with_id(app, "hide", "Hide Artemis", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -87,24 +130,24 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
-            
+
             // 1. Generate 256-bit token
             let mut token_bytes = [0u8; 32];
             rand::thread_rng().fill_bytes(&mut token_bytes);
             let token = hex::encode(token_bytes);
-            
+
             let token_env = token.clone();
-            
+
             // 2. Supervisor Thread
             thread::spawn(move || {
                 let current_dir = env::current_dir().unwrap();
                 let backend_dir = current_dir.join("../../backend");
                 let python_exe = backend_dir.join(".venv/Scripts/python.exe");
-                
+
                 let mut retries = 0;
                 let max_retries = 3;
-                let mut previous_job: Option<windows::Win32::Foundation::HANDLE> = None;
-                
+                let mut _previous_job: Option<JobObjectGuard> = None;
+
                 loop {
                     let mut cmd = Command::new(python_exe.clone());
                     cmd.arg("-m")
@@ -116,7 +159,7 @@ pub fn run() {
                        .env("ARTEMIS_AUTH_TOKEN", token_env.clone())
                        .stdout(Stdio::piped())
                        .creation_flags(0x08000000); // CREATE_NO_WINDOW
-                       
+
                     let mut child = match cmd.spawn() {
                         Ok(c) => c,
                         Err(e) => {
@@ -124,33 +167,23 @@ pub fn run() {
                             break;
                         }
                     };
-                    
+
                     // 3. Assign to Windows Job Object
-                    unsafe {
-                        if let Some(old_job) = previous_job {
-                            let _ = CloseHandle(old_job);
+                    let job = match JobObjectGuard::new() {
+                        Ok(j) => j,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            break;
                         }
-                        
-                        let job = CreateJobObjectW(None, windows::core::PCWSTR::null()).expect("Failed to create job object");
-                        
-                        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-                        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-                        
-                        SetInformationJobObject(
-                            job,
-                            JobObjectExtendedLimitInformation,
-                            &info as *const _ as *const std::ffi::c_void,
-                            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-                        ).expect("Failed to set job object info");
-                        
-                        let handle_raw = child.as_raw_handle();
-                        let process_handle = windows::Win32::Foundation::HANDLE(handle_raw as *mut _);
-                        
-                        AssignProcessToJobObject(job, process_handle).expect("Failed to assign process to job object");
-                        
-                        previous_job = Some(job);
+                    };
+
+                    if let Err(e) = job.assign_process(&child) {
+                        eprintln!("{}", e);
+                        break;
                     }
-                    
+
+                    _previous_job = Some(job);
+
                     // 4. Read handshake from stdout — with a 15-second timeout
                     //    (api.md §7: "shell retries handshake for 15 s, then FATAL UI").
                     //    A background thread performs the blocking read; the supervisor
@@ -240,10 +273,54 @@ pub fn run() {
                     thread::sleep(Duration::from_millis(500 * (1u64 << retries)));
                 }
             });
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![get_backend_handle])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+    use std::time::Duration;
+    use std::thread;
+
+    #[test]
+    fn test_job_object_kills_child_on_drop() {
+        // Spawn a long-running dummy process that doesn't terminate immediately.
+        // `ping` is a native Windows binary that can run for a while.
+        let mut child = Command::new("ping")
+            .args(&["127.0.0.1", "-n", "100"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("Failed to spawn dummy process");
+
+        // Create job and assign
+        let job = JobObjectGuard::new().expect("Failed to create job object");
+        job.assign_process(&child).expect("Failed to assign process");
+
+        // Verify it's running
+        thread::sleep(Duration::from_millis(500));
+        assert!(child.try_wait().unwrap().is_none(), "Child should still be running");
+
+        // Drop the job object. This should trigger KILL_ON_JOB_CLOSE
+        drop(job);
+
+        // Verify the process is terminated
+        // We might need to wait a small amount for the OS to kill it
+        let mut killed = false;
+        for _ in 0..10 {
+            if child.try_wait().unwrap().is_some() {
+                killed = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        assert!(killed, "Child process was not killed after Job Object was dropped");
+    }
 }

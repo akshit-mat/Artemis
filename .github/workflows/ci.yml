@@ -53,6 +53,10 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: apps/desktop
 
+      - name: Frontend tests
+        run: pnpm test
+        working-directory: apps/desktop
+
       - name: Frontend TypeScript check
         run: pnpm exec tsc --noEmit
         working-directory: apps/desktop
