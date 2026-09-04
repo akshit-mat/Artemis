@@ -82,6 +82,30 @@ class LoggingConfig(_Model):
     """Never log message payloads by default (``docs/architecture.md`` §8)."""
 
 
+class ModelCapabilitiesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    tools: bool = False
+    reasoning: bool = False
+    vision: bool = False
+    streaming: bool = True
+    structured_output: bool = False
+    context_window: int = 8192
+    recommended_num_ctx: int = 8192
+
+
+class ModelConfig(_Model):
+    id: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    role: Literal["primary", "fast", "vision", "embedding"]
+    num_ctx: int = Field(default=8192, ge=256, le=131072)
+    capabilities: ModelCapabilitiesConfig = Field(default_factory=ModelCapabilitiesConfig)
+    # Provider implementations receive this validated container. Keeping
+    # provider-specific settings here preserves fail-loud validation for the
+    # common model fields above while allowing, for example, Ollama keep_alive.
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class AppConfig(_Model):
     """Root configuration document."""
 
@@ -90,6 +114,7 @@ class AppConfig(_Model):
     events: EventsConfig = EventsConfig()
     db: DbConfig = DbConfig()
     logging: LoggingConfig = LoggingConfig()
+    models: list[ModelConfig] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
