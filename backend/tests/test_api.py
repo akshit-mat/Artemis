@@ -29,7 +29,8 @@ client = TestClient(app)
 # ---------------------------------------------------------------------------
 
 def test_health_unauthenticated():
-    response = client.get("/health", headers={"host": "127.0.0.1:1234"})
+    with TestClient(app) as c:
+        response = c.get("/health", headers={"host": "127.0.0.1:1234"})
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
