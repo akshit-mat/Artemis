@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Build & Test (Windows)
+    runs-on: windows-latest
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Python / Backend ──────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync Python dependencies
+        run: uv sync
+        working-directory: backend
+
+      - name: Python compileall
+        run: uv run python -m compileall artemis
+        working-directory: backend
+
+      - name: Backend tests
+        run: uv run pytest
+        working-directory: backend
+
+      # ── Node / Frontend ───────────────────────────────────────────────────
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9.1.0"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: apps/desktop
+
+      - name: Frontend TypeScript check
+        run: pnpm exec tsc --noEmit
+        working-directory: apps/desktop
+
+      - name: Frontend production build
+        run: pnpm run build
+        working-directory: apps/desktop
+
+      # ── Rust / Tauri ──────────────────────────────────────────────────────
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust dependency cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: cargo check
+        run: cargo check
+        working-directory: apps/desktop/src-tauri
+
+      - name: cargo test
+        run: cargo test
+        working-directory: apps/desktop/src-tauri
+
+      - name: cargo build
+        run: cargo build
+        working-directory: apps/desktop/src-tauri

@@ -130,7 +130,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "ts": datetime.now(timezone.utc).isoformat(),
                             "type": "client.resync_required",
                             "session_id": "s_test",
-                            "data": {}
+                            "data": {"last_seq": bus.current_seq},
                         })
                     else:
                         for e in replay_events:

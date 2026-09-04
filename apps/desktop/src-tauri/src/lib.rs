@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::{Manager, State, Emitter};
@@ -151,44 +151,93 @@ pub fn run() {
                         previous_job = Some(job);
                     }
                     
-                    // 4. Read handshake from stdout
+                    // 4. Read handshake from stdout — with a 15-second timeout
+                    //    (api.md §7: "shell retries handshake for 15 s, then FATAL UI").
+                    //    A background thread performs the blocking read; the supervisor
+                    //    thread waits on a channel with recv_timeout so it is never stuck.
                     let stdout = child.stdout.take().unwrap();
-                    let mut reader = BufReader::new(stdout);
-                    let mut line = String::new();
-                    if let Ok(bytes) = reader.read_line(&mut line) {
-                        if bytes > 0 {
-                            #[derive(serde::Deserialize)]
-                            struct Handshake {
-                                port: u16,
-                                pid: u32,
-                                version: String,
-                            }
-                            
-                            if let Ok(handshake) = serde_json::from_str::<Handshake>(&line) {
-                                let backend_handle = BackendHandle {
-                                    port: handshake.port,
-                                    token: token_env.clone(),
-                                    origin: "http://tauri.localhost".to_string(), 
-                                };
-                                
-                                let state: State<AppState> = handle.state();
-                                *state.backend_handle.lock().unwrap() = Some(backend_handle);
-                                
-                                let _ = handle.emit("backend-ready", ());
-                            }
+                    let (tx, rx) = mpsc::channel::<Option<String>>();
+
+                    thread::spawn(move || {
+                        let mut reader = BufReader::new(stdout);
+                        let mut line = String::new();
+                        match reader.read_line(&mut line) {
+                            Ok(bytes) if bytes > 0 => { let _ = tx.send(Some(line)); }
+                            _ => { let _ = tx.send(None); }
                         }
+                    });
+
+                    let handshake_line = match rx.recv_timeout(Duration::from_secs(15)) {
+                        Ok(Some(line)) => line,
+                        Ok(None) => {
+                            // Reader closed without data (process exited cleanly without handshake)
+                            eprintln!("Backend exited without emitting handshake");
+                            let _ = child.wait();
+                            retries += 1;
+                            if retries > max_retries {
+                                let _ = handle.emit("backend-fatal", ());
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(500 * (1u64 << retries)));
+                            continue;
+                        }
+                        Err(_) => {
+                            // Timeout — kill the child and retry
+                            eprintln!("Backend handshake timed out after 15 s; killing child");
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            retries += 1;
+                            if retries > max_retries {
+                                let _ = handle.emit("backend-fatal", ());
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(500 * (1u64 << retries)));
+                            continue;
+                        }
+                    };
+
+                    #[derive(serde::Deserialize)]
+                    #[allow(dead_code)]
+                    struct Handshake {
+                        port: u16,
+                        pid: u32,
+                        version: String,
                     }
-                    
-                    // 5. Wait for child to exit
+
+                    if let Ok(handshake) = serde_json::from_str::<Handshake>(handshake_line.trim()) {
+                        let backend_handle = BackendHandle {
+                            port: handshake.port,
+                            token: token_env.clone(),
+                            origin: "http://tauri.localhost".to_string(),
+                        };
+
+                        let state: State<AppState> = handle.state();
+                        *state.backend_handle.lock().unwrap() = Some(backend_handle);
+
+                        let _ = handle.emit("backend-ready", ());
+                    } else {
+                        eprintln!("Backend handshake JSON could not be parsed");
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        retries += 1;
+                        if retries > max_retries {
+                            let _ = handle.emit("backend-fatal", ());
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(500 * (1u64 << retries)));
+                        continue;
+                    }
+
+                    // 5. Wait for child to exit (normal: sidecar ran and terminated)
                     let _ = child.wait();
-                    
+
                     retries += 1;
                     if retries > max_retries {
                         let _ = handle.emit("backend-fatal", ());
                         break;
                     }
-                    
-                    thread::sleep(Duration::from_millis(500 * (1 << retries)));
+
+                    thread::sleep(Duration::from_millis(500 * (1u64 << retries)));
                 }
             });
             
