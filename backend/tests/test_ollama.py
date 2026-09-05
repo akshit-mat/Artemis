@@ -154,6 +154,81 @@ async def test_ollama_provider_stream_success(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_ollama_provider_message_thinking_field(monkeypatch):
+    """Ollama 0.33+ separates thinking into message.thinking (not inline <think> tags).
+
+    Thinking tokens from message.thinking must be emitted as reasoning chunks
+    directly.  message.content carries only the real response (no tags).
+    This test verifies that the /think artifact is eliminated: message.content
+    is passed through the StreamSplitter as-is without contamination from the
+    thinking field.
+    """
+    config = ModelConfig(
+        id="qwen",
+        provider="ollama",
+        model="qwen3:8b",
+        role="primary",
+        capabilities={"reasoning": True},
+    )
+    provider = OllamaProvider(config)
+
+    def mock_post_stream(method, url, json=None, **kwargs):
+        # Simulate Ollama 0.33 format: thinking in message.thinking, response in message.content
+        lines = [
+            json_mod.dumps({"message": {"content": "",   "thinking": "Okay,"}}),
+            json_mod.dumps({"message": {"content": "",   "thinking": " let me think."}}),
+            json_mod.dumps({"message": {"content": "ARTEMIS ONLINE", "thinking": ""}}),
+            json_mod.dumps({"done": True, "prompt_eval_count": 8, "eval_count": 3, "done_reason": "stop"}),
+        ]
+        return MockResponse(200, lines)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_post_stream=mock_post_stream))
+
+    cancel_scope = anyio.CancelScope()
+    chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
+
+    kinds = [c.kind for c in chunks]
+    # Two reasoning chunks (from thinking field), one content, usage, done
+    assert kinds == ["reasoning", "reasoning", "content", "usage", "done"], kinds
+
+    assert chunks[0].text == "Okay,"
+    assert chunks[1].text == " let me think."
+    assert chunks[2].text == "ARTEMIS ONLINE"
+    # No <think> contamination in content
+    assert "<think>" not in chunks[2].text
+    assert "/think" not in chunks[2].text
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_message_thinking_disabled(monkeypatch):
+    """Thinking from message.thinking is silently dropped when reasoning=False."""
+    config = ModelConfig(
+        id="qwen", provider="ollama", model="qwen3:8b", role="primary",
+        capabilities={"reasoning": False},
+    )
+    provider = OllamaProvider(config)
+
+    def mock_post_stream(method, url, json=None, **kwargs):
+        lines = [
+            json_mod.dumps({"message": {"content": "",  "thinking": "secret thought"}}),
+            json_mod.dumps({"message": {"content": "Hello", "thinking": ""}}),
+            json_mod.dumps({"done": True, "done_reason": "stop"}),
+        ]
+        return MockResponse(200, lines)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_post_stream=mock_post_stream))
+
+    cancel_scope = anyio.CancelScope()
+    chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
+
+    kinds = [c.kind for c in chunks]
+    # thinking dropped, only content + usage + done
+    assert kinds == ["content", "usage", "done"], kinds
+    assert chunks[0].text == "Hello"
+
+
+
+@pytest.mark.anyio
 async def test_ollama_provider_reasoning_disabled(monkeypatch):
     """Test that <think> tags are dropped if reasoning capability is False."""
     config = ModelConfig(

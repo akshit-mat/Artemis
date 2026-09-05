@@ -209,9 +209,17 @@ class OllamaProvider(ModelProvider):
                                 
                             msg = data.get("message", {})
                             content = msg.get("content", "")
-                            
-                            # Parse content through the splitter to separate <think> tags.
-                            # ALWAYS intercept <think> tags. If reasoning is disabled, drop them.
+                            thinking = msg.get("thinking", "")
+
+                            # Ollama 0.33+ separates thinking into message.thinking
+                            # and the actual response into message.content.
+                            # Emit thinking tokens directly as reasoning chunks.
+                            if thinking and self.capabilities["reasoning"]:
+                                yield Chunk(kind="reasoning", text=thinking)
+
+                            # Parse content through the splitter to handle any
+                            # inline <think> tags from older Ollama versions.
+                            # Always intercept <think> tags; drop reasoning if disabled.
                             if content:
                                 parsed_chunks = splitter.process(content)
                                 for kind, text in parsed_chunks:
