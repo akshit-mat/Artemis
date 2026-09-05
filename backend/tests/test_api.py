@@ -35,6 +35,64 @@ def test_health_unauthenticated():
     assert response.json()["status"] == "ok"
 
 
+def test_telemetry_snapshot_unauthenticated():
+    with TestClient(app) as client:
+        resp = client.get("/v1/telemetry/snapshot", headers={"host": "127.0.0.1:1234"})
+        assert resp.status_code == 401
+
+
+def test_get_models_unauthenticated():
+    with TestClient(app) as client:
+        resp = client.get("/v1/models", headers={"host": "127.0.0.1:1234"})
+        assert resp.status_code == 401
+
+
+def test_get_models_authenticated():
+    from artemis.models.registry import ModelRegistry
+    from artemis.config.schema import AppConfig, ModelConfig
+    from artemis.models.fake import FakeProvider
+
+    ModelRegistry.register_provider("fake", FakeProvider)
+    cfg = ModelConfig(id="qwen", provider="fake", model="m", role="primary")
+    app.state.model_registry = ModelRegistry(AppConfig(models=[cfg]))
+
+    with TestClient(app) as client:
+        resp = client.get("/v1/models", headers=dict(VALID_HEADERS))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "models" in data
+        assert isinstance(data["models"], list)
+        models = data["models"]
+        assert len(models) == 1
+        assert models[0]["id"] == "qwen"
+        assert models[0]["active"] is True
+
+
+def test_select_model_authenticated():
+    from artemis.models.registry import ModelRegistry
+    from artemis.config.schema import AppConfig, ModelConfig
+    from artemis.models.fake import FakeProvider
+
+    ModelRegistry.register_provider("fake", FakeProvider)
+    cfg = ModelConfig(id="qwen", provider="fake", model="m", role="primary")
+    app.state.model_registry = ModelRegistry(AppConfig(models=[cfg]))
+
+    with TestClient(app) as client:
+        # Invalid role
+        resp = client.post("/v1/models/select", json={"role": "unknown", "model_id": "qwen"}, headers=dict(VALID_HEADERS))
+        assert resp.status_code == 404
+
+        # Invalid model ID for valid role
+        resp = client.post("/v1/models/select", json={"role": "primary", "model_id": "wrong"}, headers=dict(VALID_HEADERS))
+        assert resp.status_code == 400
+        assert "Model selection is static per role" in resp.json()["error"]["message"]
+
+        # Valid selection
+        resp = client.post("/v1/models/select", json={"role": "primary", "model_id": "qwen"}, headers=dict(VALID_HEADERS))
+        assert resp.status_code == 200
+        assert resp.json()["active_model_id"] == "qwen"
+
+
 # ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------

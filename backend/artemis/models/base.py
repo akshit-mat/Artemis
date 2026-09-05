@@ -31,12 +31,19 @@ class Usage:
 
 
 @dataclass
+class ProviderError:
+    code: Literal["MODEL_UNAVAILABLE", "MODEL_NOT_FOUND", "MODEL_TIMEOUT", "INTERNAL", "CANCELLED"]
+    message: str
+
+
+@dataclass
 class Chunk:
-    kind: Literal["content", "reasoning", "tool_call", "usage", "done"]
+    kind: Literal["content", "reasoning", "tool_call", "usage", "done", "error"]
     text: Optional[str] = None
     tool_call: Optional[ToolCall] = None
     usage: Optional[Usage] = None
     finish_reason: Optional[str] = None
+    error: Optional[ProviderError] = None
 
 
 class GenOptions(TypedDict, total=False):

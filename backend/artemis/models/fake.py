@@ -60,10 +60,19 @@ class FakeProvider(ModelProvider):
                 if self.chunk_delay_s > 0:
                     if self.delay_started is not None:
                         self.delay_started.set()
-                    await anyio.sleep(self.chunk_delay_s)
+                    try:
+                        await anyio.sleep(self.chunk_delay_s)
+                    except anyio.get_cancelled_exc_class():
+                        if cancel_token.cancel_called:
+                            break
+                        raise
                 if cancel_token.cancel_called:
                     break
                 yield chunk
+
+        if cancel_token.cancel_called:
+            from artemis.models.base import ProviderError
+            yield Chunk(kind="error", error=ProviderError(code="CANCELLED", message="Cancelled"))
 
     async def health(self) -> ProviderHealth:
         return self.health_status

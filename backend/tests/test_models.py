@@ -56,9 +56,12 @@ async def test_fake_provider_cancellation():
         if chunk.text == "2":
             cancel_scope.cancel()
             
-    # Should stop after yielding "2", so 2 chunks total.
-    assert len(streamed_chunks) == 2
-    assert streamed_chunks[-1].text == "2"
+    # Should yield "1", "2", and then a CANCELLED error chunk.
+    assert len(streamed_chunks) == 3
+    assert streamed_chunks[0].text == "1"
+    assert streamed_chunks[1].text == "2"
+    assert streamed_chunks[2].kind == "error"
+    assert streamed_chunks[2].error.code == "CANCELLED"
 
 
 @pytest.mark.anyio
@@ -168,8 +171,10 @@ async def test_fake_provider_cancel_during_delay():
         with anyio.fail_after(0.2):
             await stream_finished.wait()
 
-    # Since it cancels during the sleep for the first chunk, 0 chunks should be emitted
-    assert len(streamed_chunks) == 0
+    # Since it cancels during the sleep for the first chunk, only the CANCELLED error chunk is emitted
+    assert len(streamed_chunks) == 1
+    assert streamed_chunks[0].kind == "error"
+    assert streamed_chunks[0].error.code == "CANCELLED"
     assert time.perf_counter() - started_at < 0.2
 
 

@@ -57,6 +57,9 @@ app.state.policy = policy
 app.state.db = db
 app.state.config = config
 
+from ..models.registry import ModelRegistry
+app.state.model_registry = ModelRegistry(config)
+
 install_exception_handlers(app)
 
 
@@ -173,6 +176,50 @@ async def get_session_state(session_id: str) -> SessionStateResponse:
         pending_approvals=[],
         active_task=None,
     )
+
+
+from pydantic import BaseModel
+class ModelSelectionReq(BaseModel):
+    role: str
+    model_id: str
+
+
+@app.get("/v1/models")
+async def get_models(request: Request):
+    from ..models.registry import ModelRegistry
+    registry: ModelRegistry = request.app.state.model_registry
+    models_resp = []
+    for role in registry.get_all_roles():
+        provider = registry.get_provider(role)
+        if provider:
+            health = await provider.health()
+            cfg = registry.get_config(role)
+            if cfg:
+                models_resp.append({
+                    "id": cfg.id,
+                    "provider": cfg.provider,
+                    "model": cfg.model,
+                    "role": role,
+                    "num_ctx": cfg.num_ctx,
+                    "capabilities": cfg.capabilities.model_dump(),
+                    "health": health,
+                    "active": True
+                })
+    return {"models": models_resp}
+
+
+@app.post("/v1/models/select")
+async def select_model(request: Request, body: ModelSelectionReq):
+    from ..models.registry import ModelRegistry
+    registry: ModelRegistry = request.app.state.model_registry
+    provider = registry.get_provider(body.role)
+    if not provider:
+        return JSONResponse(status_code=404, content={"error": {"code": "NOT_FOUND", "message": f"Role {body.role} not found"}})
+    cfg = registry.get_config(body.role)
+    if cfg and cfg.id != body.model_id:
+        return JSONResponse(status_code=400, content={"error": {"code": "BAD_REQUEST", "message": "Model selection is static per role. Only the configured model is selectable."}})
+
+    return {"status": "ok", "active_model_id": cfg.id if cfg else body.model_id}
 
 
 app.include_router(ws_router, prefix="/v1")
