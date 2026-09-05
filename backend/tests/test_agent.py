@@ -9,6 +9,7 @@ from artemis.storage.database import Database
 from artemis.config.schema import DbConfig, ModelConfig
 from artemis.storage.repositories.runs import RunRepository
 from artemis.storage.repositories.messages import MessageRepository
+from artemis.storage.repositories.sessions import SessionRepository
 from artemis.agent.context import ContextAssembler, estimate_tokens
 from artemis.agent.loop import AgentOrchestrator
 from artemis.models.registry import ModelRegistry
@@ -26,11 +27,29 @@ def db(tmp_path: Path) -> Database:
     from artemis.storage.migrations import init_db
     init_db(database)
 
-    # Create test session
+    # Create test session (pre-seeded — existing tests depend on this)
     database.execute_write_sync("INSERT INTO sessions (id, title) VALUES ('s_test', 'Test Session')")
 
     yield database
     database.shutdown()
+
+
+@pytest.fixture
+def db_empty(tmp_path: Path) -> Database:
+    """Fresh production-style database with NO pre-seeded sessions.
+
+    Used to regression-test that AgentOrchestrator with a SessionRepository
+    can handle chat.send on a brand-new database without hitting a
+    FOREIGN KEY constraint failure.
+    """
+    config = DbConfig(read_pool_size=1, busy_timeout_ms=100)
+    database = Database(tmp_path / "empty.sqlite", config)
+    database.open()
+    from artemis.storage.migrations import init_db
+    init_db(database)  # schema only — no session row inserted
+    yield database
+    database.shutdown()
+
 
 @pytest.fixture
 def repos(db: Database):
@@ -234,3 +253,47 @@ async def test_agent_cancellation(repos, registry):
     # verify it was cancelled
     run = await run_repo.get_run(run_id)
     assert run["status"] == "CANCELLED"
+
+
+@pytest.mark.anyio
+async def test_chat_send_on_empty_db_does_not_fail_fk(db_empty: Database, registry):
+    """Regression guard: chat.send must succeed on a fresh production-style DB.
+
+    Before the fix, AgentOrchestrator did not ensure the session row existed
+    before calling create_run(), causing ``FOREIGN KEY constraint failed`` on
+    any database that had not been manually seeded with a sessions row.
+
+    This test uses db_empty (no pre-seeded sessions) and verifies that:
+    1. handle_chat does not raise.
+    2. The session is auto-created by SessionRepository.ensure_session.
+    3. The run reaches DONE.
+    4. User + assistant messages are persisted correctly.
+    """
+    run_repo = RunRepository(db_empty)
+    msg_repo = MessageRepository(db_empty)
+    session_repo = SessionRepository(db_empty)
+    orchestrator = AgentOrchestrator(run_repo, msg_repo, registry, session_repo)
+
+    provider: FakeProvider = registry.get_provider("primary")
+    provider.scripted_chunks = [
+        Chunk(kind="content", text="OK"),
+        Chunk(kind="usage", usage=Usage(input_tokens=3, output_tokens=1)),
+        Chunk(kind="done", finish_reason="stop"),
+    ]
+
+    # Must NOT raise FOREIGN KEY constraint failed
+    run_id = await orchestrator.handle_chat("s_prod", "ping")
+    await orchestrator.run_conversation(run_id, "s_prod")
+
+    run = await run_repo.get_run(run_id)
+    assert run["status"] == "DONE"
+
+    msgs = await msg_repo.get_messages_for_session("s_prod")
+    assert len(msgs) == 2
+    assert msgs[0]["role"] == "user"
+    assert msgs[1]["role"] == "assistant"
+    assert msgs[1]["content"] == "OK"
+
+    # Session row was auto-created
+    rows = await db_empty.query("SELECT id FROM sessions WHERE id = ?", ("s_prod",))
+    assert len(rows) == 1

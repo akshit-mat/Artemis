@@ -7,6 +7,7 @@ from .context import ContextAssembler, estimate_tokens
 from .manager import run_manager
 from ..storage.repositories.runs import RunRepository
 from ..storage.repositories.messages import MessageRepository
+from ..storage.repositories.sessions import SessionRepository
 from ..models.registry import ModelRegistry
 from ..api.events import bus
 from ..models.base import GenOptions
@@ -17,10 +18,12 @@ class AgentOrchestrator:
     def __init__(self,
                  run_repo: RunRepository,
                  message_repo: MessageRepository,
-                 model_registry: ModelRegistry):
+                 model_registry: ModelRegistry,
+                 session_repo: SessionRepository | None = None):
         self.run_repo = run_repo
         self.message_repo = message_repo
         self.model_registry = model_registry
+        self.session_repo = session_repo
 
     async def handle_chat(self, session_id: str, text: str, client_msg_id: str = None) -> str:
         """
@@ -39,10 +42,15 @@ class AgentOrchestrator:
         if not model_config:
             raise ValueError("No primary model configured")
 
-        # 1. Create run
+        # 1. Ensure session row exists (INSERT OR IGNORE) so the FK constraint
+        #    on runs.session_id is satisfied even on a fresh production database.
+        if self.session_repo is not None:
+            await self.session_repo.ensure_session(session_id)
+
+        # 2. Create run
         await self.run_repo.create_run(run_id, session_id, model_config.id)
 
-        # 2. Persist user message
+        # 3. Persist user message
         user_msg_id = client_msg_id or f"m_{uuid.uuid4().hex[:12]}"
         await self.message_repo.append_message(
             id=user_msg_id,
