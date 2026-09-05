@@ -24,14 +24,17 @@
     "/v1/sessions/{session_id}/state": {
       "get": {
         "summary": "Get Session State",
-        "description": "Return the authoritative session snapshot for full resync. Called by the frontend when client.resync_required is received (api.md §4).",
+        "description": "Return the authoritative session snapshot for full resync.\n\nCalled by the frontend when the WS event bus sends ``client.resync_required``\n(i.e. the requested replay window is no longer available).\n\nSee ``docs/api.md`` \u00a73 and \u00a74.",
         "operationId": "get_session_state_v1_sessions__session_id__state_get",
         "parameters": [
           {
             "name": "session_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "title": "Session Id" }
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
           }
         ],
         "responses": {
@@ -39,157 +42,477 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/SessionStateResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
               }
             }
           },
-          "404": {
-            "description": "Session not found"
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "summary": "Get Models",
+        "operationId": "get_models_v1_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models/select": {
+      "post": {
+        "summary": "Select Model",
+        "operationId": "select_model_v1_models_select_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelSelectionReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
           },
           "422": {
-            "description": "Validation Error"
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [{ "BearerAuth": [] }]
+        }
       }
     }
   },
   "components": {
-    "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer"
-      }
-    },
     "schemas": {
+      "AssistantStateData": {
+        "properties": {
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "intensity": {
+            "title": "Intensity",
+            "type": "number"
+          }
+        },
+        "required": [
+          "state",
+          "intensity"
+        ],
+        "title": "AssistantStateData",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ModelSelectionReq": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "model_id"
+        ],
+        "title": "ModelSelectionReq"
+      },
+      "SessionStateResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "last_seq": {
+            "type": "integer",
+            "title": "Last Seq"
+          },
+          "assistant_state": {
+            "$ref": "#/components/schemas/AssistantStateData"
+          },
+          "active_run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Run"
+          },
+          "pending_approvals": {
+            "items": {},
+            "type": "array",
+            "title": "Pending Approvals"
+          },
+          "active_task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Task"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "last_seq",
+          "assistant_state"
+        ],
+        "title": "SessionStateResponse",
+        "description": "Authoritative session snapshot returned by GET /v1/sessions/{id}/state.\n\nUsed by the frontend to fully resync after a replay gap.\nSee ``docs/api.md`` \u00a73 and the ``client.resync_required`` WS event."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
       "AgentDeltaData": {
         "properties": {
-          "channel": { "title": "Channel", "type": "string" },
-          "text": { "title": "Text", "type": "string" }
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
         },
-        "required": ["channel", "text"],
+        "required": [
+          "channel",
+          "text"
+        ],
         "title": "AgentDeltaData",
         "type": "object"
       },
       "AgentErrorData": {
         "properties": {
-          "code": { "title": "Code", "type": "string" },
-          "message": { "title": "Message", "type": "string" },
-          "recoverable": { "title": "Recoverable", "type": "boolean" },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "recoverable": {
+            "title": "Recoverable",
+            "type": "boolean"
+          },
           "correlation_id": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "title": "Correlation Id"
           }
         },
-        "required": ["code", "message", "recoverable"],
+        "required": [
+          "code",
+          "message",
+          "recoverable"
+        ],
         "title": "AgentErrorData",
         "type": "object"
       },
       "AgentMessageData": {
         "properties": {
-          "message_id": { "title": "Message Id", "type": "string" },
-          "role": { "title": "Role", "type": "string" },
-          "content": { "title": "Content", "type": "string" },
-          "finish_reason": { "title": "Finish Reason", "type": "string" },
-          "steps_used": { "title": "Steps Used", "type": "integer" },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "finish_reason": {
+            "title": "Finish Reason",
+            "type": "string"
+          },
+          "steps_used": {
+            "title": "Steps Used",
+            "type": "integer"
+          },
           "tokens": {
-            "additionalProperties": { "type": "integer" },
+            "additionalProperties": {
+              "type": "integer"
+            },
             "title": "Tokens",
             "type": "object"
           },
           "incomplete": {
-            "anyOf": [{ "type": "boolean" }, { "type": "null" }],
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
             "title": "Incomplete"
           }
         },
-        "required": ["message_id", "role", "content", "finish_reason", "steps_used", "tokens"],
+        "required": [
+          "message_id",
+          "role",
+          "content",
+          "finish_reason",
+          "steps_used",
+          "tokens"
+        ],
         "title": "AgentMessageData",
         "type": "object"
       },
-      "AssistantStateData": {
+      "ChatSendData": {
         "properties": {
-          "state": { "title": "State", "type": "string" },
-          "intensity": { "title": "Intensity", "type": "number" }
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "client_msg_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Client Msg Id"
+          }
         },
-        "required": ["state", "intensity"],
-        "title": "AssistantStateData",
+        "required": [
+          "session_id",
+          "text"
+        ],
+        "title": "ChatSendData",
         "type": "object"
       },
-      "ResyncRequiredData": {
+      "RunCancelData": {
         "properties": {
-          "last_seq": { "title": "Last Seq", "type": "integer" }
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          }
         },
-        "required": ["last_seq"],
-        "title": "ResyncRequiredData",
+        "required": [
+          "run_id"
+        ],
+        "title": "RunCancelData",
         "type": "object"
       },
       "SessionReadyData": {
         "properties": {
-          "last_seq": { "title": "Last Seq", "type": "integer" },
-          "assistant_state": { "$ref": "#/components/schemas/AssistantStateData" },
-          "model": { "additionalProperties": true, "title": "Model", "type": "object" },
-          "pending_approvals": { "items": {}, "title": "Pending Approvals", "type": "array" }
-        },
-        "required": ["last_seq", "assistant_state", "model", "pending_approvals"],
-        "title": "SessionReadyData",
-        "type": "object"
-      },
-      "SessionStateResponse": {
-        "description": "Authoritative session snapshot returned by GET /v1/sessions/{id}/state. Used by the frontend to fully resync after a replay gap.",
-        "properties": {
-          "session_id": { "title": "Session Id", "type": "string" },
-          "last_seq": { "title": "Last Seq", "type": "integer" },
-          "assistant_state": { "$ref": "#/components/schemas/AssistantStateData" },
-          "active_run": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }],
-            "default": null,
-            "title": "Active Run"
+          "last_seq": {
+            "title": "Last Seq",
+            "type": "integer"
+          },
+          "assistant_state": {
+            "$ref": "#/components/schemas/AssistantStateData"
+          },
+          "model": {
+            "additionalProperties": true,
+            "title": "Model",
+            "type": "object"
           },
           "pending_approvals": {
             "items": {},
             "title": "Pending Approvals",
-            "type": "array",
-            "default": []
-          },
-          "active_task": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }],
-            "default": null,
-            "title": "Active Task"
+            "type": "array"
           }
         },
-        "required": ["session_id", "last_seq", "assistant_state"],
-        "title": "SessionStateResponse",
+        "required": [
+          "last_seq",
+          "assistant_state",
+          "model",
+          "pending_approvals"
+        ],
+        "title": "SessionReadyData",
         "type": "object"
       },
       "SystemEchoData": {
         "properties": {
-          "echoed_text": { "title": "Echoed Text", "type": "string" }
+          "echoed_text": {
+            "title": "Echoed Text",
+            "type": "string"
+          }
         },
-        "required": ["echoed_text"],
+        "required": [
+          "echoed_text"
+        ],
         "title": "SystemEchoData",
         "type": "object"
       },
       "WSEnvelope": {
         "properties": {
-          "v": { "default": 1, "title": "V", "type": "integer" },
+          "v": {
+            "default": 1,
+            "title": "V",
+            "type": "integer"
+          },
           "seq": {
-            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "title": "Seq"
           },
-          "ts": { "title": "Ts", "type": "string" },
-          "type": { "title": "Type", "type": "string" },
-          "session_id": { "title": "Session Id", "type": "string" },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
           "run_id": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "title": "Run Id"
           },
-          "data": { "additionalProperties": true, "title": "Data", "type": "object" }
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          }
         },
-        "required": ["ts", "type", "session_id", "data"],
+        "required": [
+          "ts",
+          "type",
+          "session_id",
+          "data"
+        ],
         "title": "WSEnvelope",
         "type": "object"
       }

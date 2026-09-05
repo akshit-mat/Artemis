@@ -189,6 +189,24 @@ function scheduleReconnect() {
   }, backoff);
 }
 
+export function sendChatMessage(sessionId: string, text: string, clientMsgId?: string) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'chat.send',
+      data: { session_id: sessionId, text, client_msg_id: clientMsgId },
+    }));
+  }
+}
+
+export function cancelRun(runId: string) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'run.cancel',
+      data: { run_id: runId },
+    }));
+  }
+}
+
 export function sendTestMessage(text: string) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({

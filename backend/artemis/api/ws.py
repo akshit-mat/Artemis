@@ -137,6 +137,28 @@ async def websocket_endpoint(websocket: WebSocket):
                             await conn.push_event(e)
                 elif msg_type == "chat.send":
                     bus.publish("system.echo", {"echoed_text": msg_data.get("text", "")})
+                    session_id = msg_data.get("session_id", "s_test")
+                    text = msg_data.get("text", "")
+                    client_msg_id = msg_data.get("client_msg_id")
+                    if text:
+                        try:
+                            agent_orchestrator = app_state.agent_orchestrator
+                            run_id = await agent_orchestrator.handle_chat(session_id, text, client_msg_id)
+                            # Run background task independent of WS connection
+                            asyncio.create_task(agent_orchestrator.run_conversation(run_id, session_id))
+                        except Exception as e:
+                            log.error("chat_send_failed", error=str(e))
+                            bus.publish("agent.error", {
+                                "code": "INTERNAL",
+                                "message": str(e),
+                                "recoverable": True,
+                                "correlation_id": None
+                            })
+                elif msg_type == "run.cancel":
+                    run_id = msg_data.get("run_id")
+                    if run_id:
+                        from ..agent.manager import run_manager
+                        run_manager.cancel(run_id)
                 else:
                     bus.publish("agent.error", {
                         "code": "BAD_MESSAGE",

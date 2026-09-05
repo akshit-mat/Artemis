@@ -8,7 +8,11 @@ sys.path.insert(0, str(backend_dir))
 
 from artemis.api.main import app
 from fastapi.openapi.utils import get_openapi
-from artemis.api.models import WSEnvelope, SessionReadyData, AgentDeltaData, AgentMessageData, AgentErrorData, SystemEchoData, AssistantStateData
+from artemis.api.models import (
+    WSEnvelope, SessionReadyData, AgentDeltaData, AgentMessageData,
+    AgentErrorData, SystemEchoData, AssistantStateData,
+    ChatSendData, RunCancelData
+)
 
 from pydantic.json_schema import models_json_schema
 
@@ -18,7 +22,8 @@ def generate_openapi():
     # Deliberately expose Pydantic models to OpenAPI schema without dummy routes
     models = [
         WSEnvelope, SessionReadyData, AgentDeltaData, AgentMessageData, 
-        AgentErrorData, SystemEchoData, AssistantStateData
+        AgentErrorData, SystemEchoData, AssistantStateData,
+        ChatSendData, RunCancelData
     ]
     
     _, top_level_schema = models_json_schema(

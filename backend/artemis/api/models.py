@@ -73,3 +73,14 @@ class WSEnvelope(BaseModel):
     session_id: str
     run_id: Optional[str] = None
     data: Dict[str, Any]
+
+
+class ChatSendData(BaseModel):
+    session_id: str
+    text: str
+    client_msg_id: Optional[str] = None
+
+
+class RunCancelData(BaseModel):
+    run_id: str
+    reason: Optional[str] = None

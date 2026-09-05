@@ -60,6 +60,16 @@ app.state.config = config
 from ..models.registry import ModelRegistry
 app.state.model_registry = ModelRegistry(config)
 
+from ..storage.repositories.runs import RunRepository
+from ..storage.repositories.messages import MessageRepository
+from ..agent.loop import AgentOrchestrator
+
+run_repo = RunRepository(db)
+message_repo = MessageRepository(db)
+app.state.run_repo = run_repo
+app.state.message_repo = message_repo
+app.state.agent_orchestrator = AgentOrchestrator(run_repo, message_repo, app.state.model_registry)
+
 install_exception_handlers(app)
 
 
