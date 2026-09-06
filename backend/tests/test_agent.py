@@ -107,11 +107,11 @@ async def test_db_runs_and_messages(repos):
 
 def test_context_assembler(caplog):
     caplog.set_level(logging.INFO)
-    assembler = ContextAssembler(num_ctx=2048, reserve_output_tokens=1024)
-    # usable_budget = 2048 - 1024 - 256 = 768
+    assembler = ContextAssembler(num_ctx=4096, reserved_output_reasoning_headroom=2048)
+    # usable_budget = 4096 - 2048 - 256 = 1792
     # Tier 0 cap = 500
     # Tier 2 cap = 300
-    # Tier 5 cap = 768 - (tier 0 + tier 2)
+    # Tier 5 cap = 1792 - (tier 0 + tier 2)
 
     messages = []
     # Add a lot of messages to force eviction
@@ -124,8 +124,8 @@ def test_context_assembler(caplog):
         })
 
     result = assembler.assemble(messages)
-    # Total tokens in tier 5 should be strictly less than 768
-    assert result.tokens_by_tier[5] <= 768
+    # Total tokens in tier 5 should be strictly less than 1792
+    assert result.tokens_by_tier[5] <= 1792
     # Evictions must have occurred
     assert result.evicted_messages > 0
 
@@ -134,15 +134,15 @@ def test_context_assembler(caplog):
 
 def test_context_assembler_500_turns():
     """Adversarial test: 500 turns to verify strict contiguous truncation and budget rules."""
-    assembler = ContextAssembler(num_ctx=8192, reserve_output_tokens=1024)
-    # usable: 8192 - 1024 - 256 = 6912
+    assembler = ContextAssembler(num_ctx=4096, reserved_output_reasoning_headroom=2048)
+    # usable: 4096 - 2048 - 256 = 1792
     # tier_0: ~13 tokens (system prompt)
-    # tier_5: ~6899 budget
+    # tier_5: ~1779 budget
     messages = []
 
     # Generate 500 turns of exactly 20 tokens each.
-    # 500 * 20 = 10000 tokens total, exceeding the budget of ~6899.
-    # Therefore, we should only fit approx 344 turns.
+    # 500 * 20 = 10000 tokens total, exceeding the budget of ~1779.
+    # Therefore, we should only fit approx 88 turns.
     for i in range(500):
         messages.append({
             "content": "A " * 72, # 72 chars / 3.6 = 20 tokens
@@ -153,7 +153,7 @@ def test_context_assembler_500_turns():
     result = assembler.assemble(messages)
 
     tier_5_count = len(result.messages) - 1 # excluding system
-    expected_budget = 6912 - result.tokens_by_tier[0]
+    expected_budget = assembler.usable_budget - result.tokens_by_tier[0]
     assert result.tokens_by_tier[5] <= expected_budget
     assert tier_5_count * 20 <= expected_budget
     assert result.evicted_messages == 500 - tier_5_count

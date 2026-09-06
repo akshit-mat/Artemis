@@ -20,11 +20,13 @@ def estimate_tokens(text: str) -> int:
     return int(len(text) / 3.6)
 
 class ContextAssembler:
-    def __init__(self, num_ctx: int, reserve_output_tokens: int = 1024):
+    def __init__(self, num_ctx: int, reserved_output_reasoning_headroom: int = 2048):
         self.num_ctx = num_ctx
-        self.reserve_output_tokens = reserve_output_tokens
+        # The reserve must account for model-generated answer tokens AND reasoning tokens.
+        self.reserved_output_reasoning_headroom = reserved_output_reasoning_headroom
         self.safety_margin = 256
-        self.usable_budget = max(0, self.num_ctx - self.reserve_output_tokens - self.safety_margin)
+        # Invariant: assembled prompt tokens + reserved output/reasoning headroom + safety margin <= num_ctx
+        self.usable_budget = max(0, self.num_ctx - self.reserved_output_reasoning_headroom - self.safety_margin)
 
         self.tier_0_cap = 500
         self.tier_2_cap = 300
