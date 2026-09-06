@@ -11,6 +11,7 @@ from ..storage.repositories.sessions import SessionRepository
 from ..models.registry import ModelRegistry
 from ..api.events import bus
 from ..models.base import GenOptions
+from .policy import should_use_reasoning
 
 log = logging.getLogger("agent.loop")
 
@@ -25,7 +26,7 @@ class AgentOrchestrator:
         self.model_registry = model_registry
         self.session_repo = session_repo
 
-    async def handle_chat(self, session_id: str, text: str, client_msg_id: str = None) -> str:
+    async def handle_chat(self, session_id: str, text: str, client_msg_id: str = None, reasoning: bool | None = None) -> str:
         """
         Entry point for chat.send.
         1. Validates & creates run
@@ -67,7 +68,7 @@ class AgentOrchestrator:
         # (the FastAPI route or lifespan task group) will execute `run_conversation`
         return run_id
 
-    async def run_conversation(self, run_id: str, session_id: str) -> None:
+    async def run_conversation(self, run_id: str, session_id: str, reasoning: bool | None = None) -> None:
         """
         The background task that actually executes the conversation.
         assemble -> stream -> persist
@@ -98,6 +99,12 @@ class AgentOrchestrator:
             error_code = None
 
             options: GenOptions = {} # defaults handled by provider
+            if reasoning is not None:
+                options["reasoning"] = reasoning
+            else:
+                # Apply policy on the last user message
+                last_user_msg = next((m["content"] for m in reversed(raw_messages) if m["role"] == 'user'), "")
+                options["reasoning"] = should_use_reasoning(last_user_msg)
 
             # Bounded time per turn (120s)
             with anyio.fail_after(120.0):

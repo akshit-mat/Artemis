@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any
+import logging
 
 from artemis.storage.database import Database
 from artemis.config.schema import DbConfig, ModelConfig
@@ -104,7 +105,8 @@ async def test_db_runs_and_messages(repos):
     assert run["status"] == "DONE"
     assert run["steps_used"] == 1
 
-def test_context_assembler():
+def test_context_assembler(caplog):
+    caplog.set_level(logging.INFO)
     assembler = ContextAssembler(num_ctx=2048, reserve_output_tokens=1024)
     # usable_budget = 2048 - 1024 - 256 = 768
     # Tier 0 cap = 500
@@ -297,3 +299,61 @@ async def test_chat_send_on_empty_db_does_not_fail_fk(db_empty: Database, regist
     # Session row was auto-created
     rows = await db_empty.query("SELECT id FROM sessions WHERE id = ?", ("s_prod",))
     assert len(rows) == 1
+
+@pytest.mark.anyio
+async def test_agent_orchestrator_reasoning_override(repos, registry):
+    """Verify that reasoning=False flows through AgentOrchestrator to Provider options."""
+    run_repo, msg_repo = repos
+    orchestrator = AgentOrchestrator(run_repo, msg_repo, registry)
+
+    provider: FakeProvider = registry.get_provider("primary")
+    provider.scripted_chunks = [
+        Chunk(kind="content", text="Fast Response"),
+        Chunk(kind="done", finish_reason="stop")
+    ]
+
+    captured_options = {}
+
+    # Intercept the provider stream call to capture options
+    original_stream = provider.stream
+    async def mock_stream(messages, tools, options, cancel_token):
+        captured_options.update(options)
+        async for chunk in original_stream(messages, tools, options, cancel_token):
+            yield chunk
+
+    provider.stream = mock_stream
+
+    run_id = await orchestrator.handle_chat("s_test", "Hi", reasoning=False)
+    await orchestrator.run_conversation(run_id, "s_test", reasoning=False)
+
+    assert captured_options.get("reasoning") is False
+
+@pytest.mark.anyio
+async def test_agent_orchestrator_policy_integration(repos, registry):
+    """Verify that AgentOrchestrator uses the policy to determine reasoning when not explicitly provided."""
+    run_repo, msg_repo = repos
+    orchestrator = AgentOrchestrator(run_repo, msg_repo, registry)
+
+    provider: FakeProvider = registry.get_provider("primary")
+    provider.scripted_chunks = [
+        Chunk(kind="content", text="Policy Response"),
+        Chunk(kind="done", finish_reason="stop")
+    ]
+
+    captured_options = {}
+
+    # Intercept the provider stream call to capture options
+    original_stream = provider.stream
+    async def mock_stream(messages, tools, options, cancel_token):
+        captured_options.update(options)
+        async for chunk in original_stream(messages, tools, options, cancel_token):
+            yield chunk
+
+    provider.stream = mock_stream
+
+    # "hi" is a FAST greeting according to the policy
+    run_id = await orchestrator.handle_chat("s_test", "hi")
+    await orchestrator.run_conversation(run_id, "s_test", reasoning=None)
+
+    # The policy should have evaluated "hi" and set reasoning to False
+    assert captured_options.get("reasoning") is False
