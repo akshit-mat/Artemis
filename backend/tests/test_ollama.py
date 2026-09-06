@@ -21,7 +21,7 @@ def test_is_loopback():
 
 def test_stream_splitter_edge_cases():
     splitter = StreamSplitter()
-    
+
     # 1. Normal reasoning
     res = splitter.process("Text <think>thought</think> answer")
     assert res == [
@@ -29,14 +29,14 @@ def test_stream_splitter_edge_cases():
         ("reasoning", "thought"),
         ("content", " answer")
     ]
-    
+
     # 2. Opening tag split
     splitter = StreamSplitter()
     res = splitter.process("Let me <thi")
     assert res == [("content", "Let me ")]
     res = splitter.process("nk>think</think>")
     assert res == [("reasoning", "think")]
-    
+
     # 3. Closing tag split
     splitter = StreamSplitter()
     res = splitter.process("<think>reason")
@@ -45,35 +45,35 @@ def test_stream_splitter_edge_cases():
     assert res == [("reasoning", "ing")]
     res = splitter.process("nk> done")
     assert res == [("content", " done")]
-    
+
     # 4. content -> reasoning -> content
     splitter = StreamSplitter()
     res = splitter.process("A <think>B</think> C")
     assert res == [("content", "A "), ("reasoning", "B"), ("content", " C")]
-    
+
     # 5. Multiple reasoning sections
     splitter = StreamSplitter()
     res = splitter.process("<think>1</think> <think>2</think>")
     assert res == [("reasoning", "1"), ("content", " "), ("reasoning", "2")]
-    
+
     # 6. Incomplete <think> tag at stream termination
     splitter = StreamSplitter()
     res = splitter.process("Start <thi")
     assert res == [("content", "Start ")]
     res = splitter.flush()
     assert res == [("content", "<thi")] # correctly flushes as content
-    
+
     # 7. Incomplete close tag at stream termination
     splitter = StreamSplitter()
     splitter.process("<think>thought</th")
     res = splitter.flush()
     assert res == [("reasoning", "</th")]
-    
+
     # 8. Malformed fragments - text with partial prefixes that never complete
     splitter = StreamSplitter()
     res = splitter.process("Math: 2 < t")
     assert res == [("content", "Math: 2 < t")]
-    
+
     # Text with an actual prefix that gets buffered
     res = splitter.process("Math: 2 <thi")
     assert res == [("content", "Math: 2 ")]
@@ -111,7 +111,7 @@ class MockAsyncClient:
             async def __aexit__(self, *args):
                 self.response.closed = True
         return StreamContext(self.mock_post_stream(method, url, **kwargs))
-        
+
     async def get(self, url, **kwargs):
         return await self.mock_get(url, **kwargs)
 
@@ -127,7 +127,7 @@ async def test_ollama_provider_stream_success(monkeypatch):
         capabilities={"reasoning": True}
     )
     provider = OllamaProvider(config)
-    
+
     def mock_post_stream(method, url, json=None, **kwargs):
         lines = [
             json_mod.dumps({"message": {"content": "Hello <thi"}}),
@@ -140,12 +140,12 @@ async def test_ollama_provider_stream_success(monkeypatch):
 
     cancel_scope = anyio.CancelScope()
     messages: list[Message] = [{"role": "user", "content": "Hi"}]
-    
+
     chunks = [c async for c in provider.stream(messages, None, {}, cancel_scope)]
-    
+
     kinds = [c.kind for c in chunks]
     assert kinds == ["content", "reasoning", "content", "usage", "done"]
-    
+
     assert chunks[0].text == "Hello "
     assert chunks[1].text == "thought"
     assert chunks[2].text == " world"
@@ -236,7 +236,7 @@ async def test_ollama_provider_reasoning_disabled(monkeypatch):
         capabilities={"reasoning": False}
     )
     provider = OllamaProvider(config)
-    
+
     def mock_post_stream(method, url, json=None, **kwargs):
         lines = [
             json_mod.dumps({"message": {"content": "A <think>thought</think> B"}}),
@@ -248,7 +248,7 @@ async def test_ollama_provider_reasoning_disabled(monkeypatch):
 
     cancel_scope = anyio.CancelScope()
     chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
-    
+
     kinds = [c.kind for c in chunks]
     # reasoning is dropped, so we only get content and done
     assert kinds == ["content", "content", "usage", "done"]
@@ -282,7 +282,7 @@ def test_ollama_provider_loopback_validation():
     for url in valid_configs:
         config = ModelConfig(id="t", provider="ollama", model="m", role="primary", options={"base_url": url})
         OllamaProvider(config) # Should not raise
-        
+
     invalid_configs = [
         "http://0.0.0.0:11434",
         "http://192.168.1.1:11434",
@@ -298,7 +298,7 @@ def test_ollama_provider_loopback_validation():
 @pytest.mark.anyio
 async def test_ollama_provider_real_cancellation(monkeypatch):
     """Prove that cancellation interrupts a blocked streaming read and returns in <200ms, and properly invokes stream closure."""
-    
+
     class RealisticMockResponse:
         def __init__(self, status_code):
             self.status_code = status_code
@@ -316,15 +316,15 @@ async def test_ollama_provider_real_cancellation(monkeypatch):
     class MockStreamContext:
         def __init__(self, response):
             self.response = response
-        
+
         async def __aenter__(self):
             return self.response
-            
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             await self.response.aclose()
 
     response = RealisticMockResponse(200)
-    
+
     def mock_post_stream(method, url, **kwargs):
         return MockStreamContext(response)
 
@@ -337,13 +337,13 @@ async def test_ollama_provider_real_cancellation(monkeypatch):
             return mock_post_stream(method, url, **kwargs)
 
     monkeypatch.setattr(httpx, "AsyncClient", CustomMockAsyncClient)
-    
+
     config = ModelConfig(id="test", provider="ollama", model="m", role="primary")
     provider = OllamaProvider(config)
-    
+
     cancel_scope = anyio.CancelScope()
     streamed_chunks = []
-    
+
     async def run_stream():
         async for chunk in provider.stream([], None, {}, cancel_scope):
             streamed_chunks.append(chunk)
@@ -353,10 +353,10 @@ async def test_ollama_provider_real_cancellation(monkeypatch):
     start_time = time.perf_counter()
     await run_stream()
     duration = time.perf_counter() - start_time
-    
+
     assert duration < 0.2, f"Latency {duration}s exceeded 200ms limit"
     assert response.aclose_called is True, "HTTP stream aclose() was not executed"
-    
+
     assert len(streamed_chunks) == 2
     assert streamed_chunks[0].text == "first chunk"
     assert streamed_chunks[1].kind == "error"
@@ -366,21 +366,21 @@ async def test_ollama_provider_real_cancellation(monkeypatch):
 @pytest.mark.anyio
 async def test_ollama_provider_timeouts(monkeypatch):
     """Test first-token timeout and read timeout."""
-    
+
     # 1. First token timeout
     class FirstTokenTimeoutResponse(MockResponse):
         async def aiter_lines(self):
             await anyio.sleep(100.0)
             yield ""
-            
+
     def mock_post_stream1(method, url, **kwargs):
         return FirstTokenTimeoutResponse(200)
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_post_stream=mock_post_stream1))
-    
+
     config = ModelConfig(id="test", provider="ollama", model="m", role="primary", options={"first_token_timeout": 0.1})
     provider = OllamaProvider(config)
-    
+
     cancel_scope = anyio.CancelScope()
     chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
     assert len(chunks) == 1
@@ -393,7 +393,7 @@ async def test_ollama_provider_timeouts(monkeypatch):
 async def test_ollama_provider_health(monkeypatch):
     config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
     provider = OllamaProvider(config)
-    
+
     async def mock_get(url, **kwargs):
         class MockHealthResp:
             status_code = 200
@@ -402,6 +402,208 @@ async def test_ollama_provider_health(monkeypatch):
         return MockHealthResp()
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_get=mock_get))
-    
+
     health = await provider.health()
     assert health["status"] == "ok"
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_reasoning_control_payload(monkeypatch):
+    """Verify that options['reasoning'] natively maps to root-level 'think'."""
+    config = ModelConfig(
+        id="qwen", provider="ollama", model="qwen3:8b", role="primary"
+    )
+    provider = OllamaProvider(config)
+
+    payloads = []
+
+    def mock_post_stream(method, url, json=None, **kwargs):
+        payloads.append(json)
+        return MockResponse(200, [json_mod.dumps({"done": True, "done_reason": "stop"})])
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_post_stream=mock_post_stream))
+    cancel_scope = anyio.CancelScope()
+
+    # 1. Unspecified
+    async for _ in provider.stream([], None, {}, cancel_scope): pass
+    assert "think" not in payloads[0]
+
+    # 2. think=false
+    async for _ in provider.stream([], None, {"reasoning": False}, cancel_scope): pass
+    assert payloads[1]["think"] is False
+    assert "think" not in payloads[1]["options"]
+
+    # 3. think=true
+    async for _ in provider.stream([], None, {"reasoning": True}, cancel_scope): pass
+    assert payloads[2]["think"] is True
+
+
+# ---------------------------------------------------------------------------
+# Degraded mode tests (Phase 2 roadmap requirement)
+# Each degraded mode must surface the correct stable error code.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_ollama_provider_offline_yields_model_unavailable(monkeypatch):
+    """ConnectError (Ollama not running) must yield MODEL_UNAVAILABLE.
+
+    Phase 2 requirement: 'Ollama offline' degraded mode surfaces the right code.
+    """
+    config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
+    provider = OllamaProvider(config)
+
+    class OfflineMockClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        def stream(self, method, url, **kwargs):
+            raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr(httpx, "AsyncClient", OfflineMockClient)
+
+    cancel_scope = anyio.CancelScope()
+    chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
+
+    assert len(chunks) == 1
+    assert chunks[0].kind == "error"
+    assert chunks[0].error.code == "MODEL_UNAVAILABLE"
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_model_not_found_yields_model_not_found(monkeypatch):
+    """HTTP 404 from Ollama (model not pulled) must yield MODEL_NOT_FOUND.
+
+    Phase 2 requirement: 'model not pulled' degraded mode surfaces the right code.
+    """
+    config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
+    provider = OllamaProvider(config)
+
+    def mock_post_stream(method, url, **kwargs):
+        return MockResponse(404)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_post_stream=mock_post_stream))
+
+    cancel_scope = anyio.CancelScope()
+    chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
+
+    assert len(chunks) == 1
+    assert chunks[0].kind == "error"
+    assert chunks[0].error.code == "MODEL_NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_health_model_not_pulled(monkeypatch):
+    """health() must return status='error' with details='model_not_pulled' when the
+    configured model is not in the Ollama model list.
+
+    Phase 2 requirement: 'model not pulled' is a distinct, identifiable health state.
+    """
+    config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
+    provider = OllamaProvider(config)
+
+    async def mock_get(url, **kwargs):
+        class Resp:
+            status_code = 200
+            def json(self):
+                # Ollama is running but our model is not present
+                return {"models": [{"name": "llama3.2:latest"}]}
+        return Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_get=mock_get))
+
+    health = await provider.health()
+    assert health["status"] == "error"
+    assert health["details"] == "model_not_pulled"
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_health_offline(monkeypatch):
+    """health() must return status='offline' when Ollama is not reachable.
+
+    Phase 2 requirement: 'Ollama offline' is a distinct health state.
+    """
+    config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
+    provider = OllamaProvider(config)
+
+    async def mock_get(url, **kwargs):
+        raise httpx.RequestError("connection refused")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_get=mock_get))
+
+    health = await provider.health()
+    assert health["status"] == "offline"
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_gpu_vram_error_yields_internal(monkeypatch):
+    """An Ollama-level GPU/VRAM error reported via error body must yield INTERNAL.
+
+    Phase 2 requirement: GPU/VRAM failure is covered.
+
+    GPU/VRAM failures are reported by Ollama as an error body in an otherwise
+    successful HTTP 200 response, e.g.:
+      {"error": "CUDA error: out of memory"}
+    The OllamaProvider maps all provider-level error bodies to INTERNAL since
+    Ollama does not use separate HTTP status codes for GPU errors. This test
+    verifies the mapping is deterministic and stable.
+    """
+    config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
+    provider = OllamaProvider(config)
+
+    def mock_post_stream(method, url, **kwargs):
+        lines = [
+            json_mod.dumps({"error": "CUDA error: out of memory"}),
+        ]
+        return MockResponse(200, lines)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: MockAsyncClient(mock_post_stream=mock_post_stream))
+
+    cancel_scope = anyio.CancelScope()
+    chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
+
+    assert len(chunks) == 1
+    assert chunks[0].kind == "error"
+    assert chunks[0].error.code == "INTERNAL"
+    assert "CUDA" in chunks[0].error.message or "out of memory" in chunks[0].error.message
+
+
+@pytest.mark.anyio
+async def test_ollama_provider_read_timeout_yields_model_timeout(monkeypatch):
+    """httpx.ReadTimeout during streaming (not first-token) must yield MODEL_TIMEOUT.
+
+    Phase 2 requirement: all timeout paths produce the right code.
+    This covers the outer ReadTimeout catch (line 269 of ollama.py), distinct
+    from the anyio first-token timeout path already tested.
+    """
+    config = ModelConfig(id="qwen", provider="ollama", model="qwen3:8b", role="primary")
+    provider = OllamaProvider(config)
+
+    class ReadTimeoutResponse:
+        status_code = 200
+
+        async def aiter_lines(self):
+            # First line succeeds, then a ReadTimeout mid-stream
+            yield json_mod.dumps({"message": {"content": "partial"}})
+            raise httpx.ReadTimeout("read timed out")
+
+        async def aclose(self): pass
+
+    class ReadTimeoutStreamContext:
+        async def __aenter__(self): return ReadTimeoutResponse()
+        async def __aexit__(self, *args): pass
+
+    class ReadTimeoutClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        def stream(self, method, url, **kwargs):
+            return ReadTimeoutStreamContext()
+
+    monkeypatch.setattr(httpx, "AsyncClient", ReadTimeoutClient)
+
+    cancel_scope = anyio.CancelScope()
+    chunks = [c async for c in provider.stream([], None, {}, cancel_scope)]
+
+    error_chunks = [c for c in chunks if c.kind == "error"]
+    assert len(error_chunks) == 1
+    assert error_chunks[0].error.code == "MODEL_TIMEOUT"

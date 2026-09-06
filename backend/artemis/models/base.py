@@ -52,6 +52,7 @@ class GenOptions(TypedDict, total=False):
     max_tokens: int
     stop: list[str]
     seed: int
+    reasoning: bool
 
 
 class Message(TypedDict):

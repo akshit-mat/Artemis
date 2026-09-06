@@ -1,5 +1,4 @@
 import json
-import logging
 import socket
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
@@ -18,8 +17,9 @@ from artemis.models.base import (
     ProviderHealth,
     Usage,
 )
+from artemis.obs.logging import get_logger
 
-logger = logging.getLogger(__name__)
+log = get_logger("provider.ollama")
 
 
 def is_loopback(host: str) -> bool:
@@ -39,7 +39,7 @@ class StreamSplitter:
     def process(self, chunk: str) -> list[tuple[str, str]]:
         self.buffer += chunk
         results = []
-        
+
         while self.buffer:
             if not self.in_reasoning:
                 idx = self.buffer.find(self.open_tag)
@@ -83,7 +83,7 @@ class StreamSplitter:
                         results.append(("reasoning", self.buffer))
                         self.buffer = ""
                     break
-                    
+
         return results
 
     def flush(self) -> list[tuple[str, str]]:
@@ -97,18 +97,18 @@ class StreamSplitter:
 
 class OllamaProvider(ModelProvider):
     """Ollama API integration."""
-    
+
     def __init__(self, config: ModelConfig):
         self.config = config
         self.name = config.model
         self.base_url = config.options.get("base_url", "http://127.0.0.1:11434")
-        
+
         parsed = httpx.URL(self.base_url)
         if not parsed.host or not is_loopback(parsed.host):
             raise ValueError(f"Ollama base_url must be loopback. Got {self.base_url}")
-            
+
         self.keep_alive = config.options.get("keep_alive", "5m")
-        
+
         self.capabilities = Capabilities(
             streaming=True,
             tools=config.capabilities.tools,
@@ -118,7 +118,7 @@ class OllamaProvider(ModelProvider):
             context_window=config.capabilities.context_window,
             recommended_num_ctx=config.num_ctx
         )
-        
+
     async def stream(
         self,
         messages: list[Message],
@@ -126,9 +126,9 @@ class OllamaProvider(ModelProvider):
         options: GenOptions,
         cancel_token: anyio.CancelScope
     ) -> AsyncIterator[Chunk]:
-        
+
         url = f"{self.base_url}/api/chat"
-        
+
         payload: dict[str, Any] = {
             "model": self.name,
             "messages": messages,
@@ -138,7 +138,7 @@ class OllamaProvider(ModelProvider):
                 "num_ctx": options.get("num_ctx", self.config.num_ctx),
             }
         }
-        
+
         if "temperature" in options:
             payload["options"]["temperature"] = options["temperature"]
         if "max_tokens" in options:
@@ -147,17 +147,20 @@ class OllamaProvider(ModelProvider):
             payload["options"]["stop"] = options["stop"]
         if "seed" in options:
             payload["options"]["seed"] = options["seed"]
-            
+
+        if "reasoning" in options:
+            payload["think"] = options["reasoning"]
+
         if tools:
             payload["tools"] = tools
 
         splitter = StreamSplitter()
-        
+
         read_timeout = float(self.config.options.get("read_timeout", 30.0))
         first_token_timeout = float(self.config.options.get("first_token_timeout", 20.0))
-        
+
         timeout = httpx.Timeout(read_timeout, connect=2.0)
-        
+
         with cancel_token:
             try:
                 async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
@@ -171,7 +174,7 @@ class OllamaProvider(ModelProvider):
 
                         iterator = response.aiter_lines().__aiter__()
                         first_line = True
-                        
+
                         while True:
                             try:
                                 if first_line:
@@ -194,19 +197,19 @@ class OllamaProvider(ModelProvider):
                                     break
                                 yield Chunk(kind="error", error=ProviderError(code="INTERNAL", message=str(e)))
                                 return
-                                
+
                             if not line:
                                 continue
-                                
+
                             try:
                                 data = json.loads(line)
                             except json.JSONDecodeError:
                                 continue
-                                
+
                             if "error" in data:
                                 yield Chunk(kind="error", error=ProviderError(code="INTERNAL", message=data['error']))
                                 return
-                                
+
                             msg = data.get("message", {})
                             content = msg.get("content", "")
                             thinking = msg.get("thinking", "")
@@ -228,7 +231,7 @@ class OllamaProvider(ModelProvider):
                                             yield Chunk(kind="reasoning", text=text)
                                     else:
                                         yield Chunk(kind="content", text=text)
-                                
+
                             # Handle tool calls
                             if "tool_calls" in msg and msg["tool_calls"]:
                                 for tc in msg["tool_calls"]:
@@ -242,7 +245,7 @@ class OllamaProvider(ModelProvider):
                                             arguments=fn.get("arguments", {})
                                         )
                                     )
-                                    
+
                             if data.get("done"):
                                 # Flush any remaining buffered text
                                 for kind, text in splitter.flush():
@@ -251,7 +254,7 @@ class OllamaProvider(ModelProvider):
                                             yield Chunk(kind="reasoning", text=text)
                                     else:
                                         yield Chunk(kind="content", text=text)
-                                        
+
                                 usage = Usage(
                                     input_tokens=data.get("prompt_eval_count", 0),
                                     output_tokens=data.get("eval_count", 0)
@@ -271,13 +274,13 @@ class OllamaProvider(ModelProvider):
                 if cancel_token.cancel_called:
                     pass
                 else:
-                    logger.error(f"Unexpected error in Ollama stream: {e}")
+                    log.error("ollama_unexpected_stream_error", error=str(e), exc_info=True)
                     yield Chunk(kind="error", error=ProviderError(code="INTERNAL", message=str(e)))
                     return
 
         if cancel_token.cancel_called:
             yield Chunk(kind="error", error=ProviderError(code="CANCELLED", message="Request cancelled"))
-                
+
     async def health(self) -> ProviderHealth:
         url = f"{self.base_url}/api/tags"
         try:

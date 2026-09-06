@@ -4,6 +4,13 @@ import type { components } from '../api/types';
 type WSEnvelope = components["schemas"]["WSEnvelope"];
 type AssistantStateData = components["schemas"]["AssistantStateData"];
 
+interface AgentError {
+  code: string;
+  message: string;
+  recoverable: boolean;
+  correlation_id: string | null;
+}
+
 interface AppState {
   wsStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
   setWsStatus: (status: 'disconnected' | 'connecting' | 'connected' | 'error') => void;
@@ -14,6 +21,9 @@ interface AppState {
   clearEvents: () => void;
   assistantState: AssistantStateData | null;
   setAssistantState: (state: AssistantStateData) => void;
+  /** The most recent agent.error payload. Drives the Phase 2 error banner. */
+  lastError: AgentError | null;
+  setLastError: (err: AgentError | null) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -26,4 +36,6 @@ export const useStore = create<AppState>((set) => ({
   clearEvents: () => set({ eventTimeline: [] }),
   assistantState: null,
   setAssistantState: (state) => set({ assistantState: state }),
+  lastError: null,
+  setLastError: (err) => set({ lastError: err }),
 }));

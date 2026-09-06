@@ -83,6 +83,17 @@ function connectInternal() {
         const payload = envelope.data as unknown as AssistantStateData;
         store.setAssistantState(payload);
 
+      } else if (envelope.type === 'agent.error') {
+        // Phase 2 requirement: degraded modes surface a distinct code in the UI banner.
+        // The frontend switches on code, never on message (api.md §1).
+        const err = envelope.data as unknown as {
+          code: string;
+          message: string;
+          recoverable: boolean;
+          correlation_id: string | null;
+        };
+        store.setLastError(err);
+
       } else if (envelope.type === 'client.resync_required') {
         // The server's replay buffer no longer covers our last_seq.
         // Fetch authoritative state from the HTTP endpoint and restore.
