@@ -85,11 +85,11 @@ fn check_health(port: u16, token: &str) -> bool {
         let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
         let request = format!(
             "GET /health HTTP/1.1\r\n\
-             Host: tauri.localhost\r\n\
+             Host: 127.0.0.1:{}\r\n\
              Authorization: Bearer {}\r\n\
              Connection: close\r\n\
              \r\n",
-             token
+             port, token
         );
         if stream.write_all(request.as_bytes()).is_ok() {
             let mut response = String::new();
@@ -104,6 +104,7 @@ fn check_health(port: u16, token: &str) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -164,7 +165,7 @@ pub fn run() {
             // 2. Supervisor Thread
             thread::spawn(move || {
                 let current_dir = env::current_dir().unwrap();
-                let backend_dir = current_dir.join("../../backend");
+                let backend_dir = current_dir.join("../../../backend");
                 let python_exe = backend_dir.join(".venv/Scripts/python.exe");
 
                 let mut retries = 0;

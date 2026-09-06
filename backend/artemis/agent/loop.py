@@ -11,6 +11,7 @@ from ..models.registry import ModelRegistry
 from ..api.events import bus
 from ..models.base import GenOptions
 from .policy import should_use_reasoning
+from .state import state_computer
 
 from ..obs.logging import get_logger
 
@@ -76,7 +77,8 @@ class AgentOrchestrator:
         """
         # Mark as RUNNING
         await self.run_repo.update_run_status(run_id, "RUNNING")
-        bus.publish("agent.state", {"state": "THINKING", "intensity": 1, "run_id": run_id}, session_id, run_id)
+        state_computer.set_state(run_id, "THINKING", intensity=1.0, run_id=run_id)
+        bus.publish("agent.state", state_computer.compute(), session_id, run_id)
 
         model_config = self.model_registry.get_config("primary")
         provider = self.model_registry.get_provider("primary")
@@ -107,13 +109,33 @@ class AgentOrchestrator:
                 last_user_msg = next((m["content"] for m in reversed(raw_messages) if m["role"] == 'user'), "")
                 options["reasoning"] = should_use_reasoning(last_user_msg)
 
+            import time
+            token_count = 0
+            last_rate_time = time.monotonic()
+
             # Bounded time per turn (120s)
             with anyio.fail_after(120.0):
                 stream_iter = provider.stream(assembly.messages, None, options, cancel_scope)
                 async for chunk in stream_iter:
                     if chunk.kind == "content":
                         if chunk.text:
+                            if not content_buffer:
+                                state_computer.set_state(run_id, "RESPONDING", intensity=1.0, run_id=run_id)
+                                bus.publish("agent.state", state_computer.compute(), session_id, run_id)
                             content_buffer += chunk.text
+
+                            token_count += estimate_tokens(chunk.text)
+                            now = time.monotonic()
+                            dt = now - last_rate_time
+                            if dt >= 0.5:
+                                rate = token_count / dt
+                                # Normalise intensity: 40 tokens/sec = 1.0
+                                intensity = min(1.5, max(0.2, rate / 40.0))
+                                state_computer.set_state(run_id, "RESPONDING", intensity=intensity, run_id=run_id)
+                                bus.publish("agent.state", state_computer.compute(), session_id, run_id)
+                                token_count = 0
+                                last_rate_time = now
+
                             bus.publish("agent.delta", {"channel": "content", "text": chunk.text}, session_id, run_id)
                     elif chunk.kind == "reasoning":
                         if chunk.text:
@@ -165,7 +187,8 @@ class AgentOrchestrator:
                 output_tokens=usage.output_tokens if usage else 0,
                 reasoning_blob_ref=None # Not persisting blobs in this phase
             )
-            bus.publish("agent.state", {"state": "IDLE", "intensity": 0, "run_id": run_id}, session_id, run_id)
+            state_computer.clear_state(run_id)
+            bus.publish("agent.state", state_computer.compute(), session_id, run_id)
 
         except TimeoutError:
             # Wall clock timeout
@@ -200,7 +223,9 @@ class AgentOrchestrator:
             "recoverable": False,
             "correlation_id": run_id
         }, session_id, run_id)
-        bus.publish("agent.state", {"state": "IDLE", "intensity": 0, "run_id": run_id}, session_id, run_id)
+        state_computer.set_state(f"error_{run_id}", "ERROR", intensity=1.0, run_id=run_id, detail=message)
+        state_computer.clear_state(run_id)
+        bus.publish("agent.state", state_computer.compute(), session_id, run_id)
 
     async def _cancel_run(self, run_id: str, session_id: str) -> None:
         """Helper to cleanly transition a run to CANCELLED state."""
@@ -211,4 +236,5 @@ class AgentOrchestrator:
             "recoverable": False,
             "correlation_id": run_id
         }, session_id, run_id)
-        bus.publish("agent.state", {"state": "IDLE", "intensity": 0, "run_id": run_id}, session_id, run_id)
+        state_computer.clear_state(run_id)
+        bus.publish("agent.state", state_computer.compute(), session_id, run_id)

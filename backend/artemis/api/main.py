@@ -162,8 +162,28 @@ async def health_check():
     }
 
 
+@app.get("/v1/sessions")
+async def list_sessions(request: Request):
+    session_repo = request.app.state.session_repo
+    sessions = await session_repo.get_sessions()
+    return {"sessions": sessions}
+
+
+@app.get("/v1/sessions/{session_id}")
+async def get_session(request: Request, session_id: str):
+    session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(session_id)
+    if not session:
+        raise ApiError(
+            ErrorCode.NOT_FOUND,
+            f"Session '{session_id}' not found",
+            status_code=404,
+        )
+    return session
+
+
 @app.get("/v1/sessions/{session_id}/state", response_model=SessionStateResponse)
-async def get_session_state(session_id: str) -> SessionStateResponse:
+async def get_session_state(request: Request, session_id: str) -> SessionStateResponse:
     """Return the authoritative session snapshot for full resync.
 
     Called by the frontend when the WS event bus sends ``client.resync_required``
@@ -173,18 +193,21 @@ async def get_session_state(session_id: str) -> SessionStateResponse:
     """
     from .events import bus
 
-    # Phase 1 supports only the single hardcoded session.
-    if session_id != "s_test":
+    session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(session_id)
+    if not session:
         raise ApiError(
             ErrorCode.NOT_FOUND,
             f"Session '{session_id}' not found",
             status_code=404,
         )
 
+    from ..agent.state import state_computer
+
     return SessionStateResponse(
         session_id=session_id,
         last_seq=bus.current_seq,
-        assistant_state=AssistantStateData(state="idle", intensity=0),
+        assistant_state=AssistantStateData(**state_computer.compute()),
         active_run=None,
         pending_approvals=[],
         active_task=None,

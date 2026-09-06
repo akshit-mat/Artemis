@@ -33,3 +33,21 @@ class SessionRepository:
             "INSERT OR IGNORE INTO sessions (id, title, created_at) VALUES (?, ?, ?)",
             (session_id, title, now),
         )
+
+    async def get_sessions(self) -> list[dict]:
+        """Fetch all sessions ordered by creation date descending."""
+        rows = await self.db.query(
+            "SELECT id, title, created_at FROM sessions ORDER BY created_at DESC"
+        )
+        return [{"id": row[0], "title": row[1] or row[0], "created_at": row[2]} for row in rows]
+
+    async def get_session(self, session_id: str) -> dict | None:
+        """Fetch a specific session by ID."""
+        rows = await self.db.query(
+            "SELECT id, title, created_at FROM sessions WHERE id = ?",
+            (session_id,)
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        return {"id": row[0], "title": row[1] or row[0], "created_at": row[2]}

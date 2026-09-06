@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { register } from "@tauri-apps/plugin-global-shortcut";
 import { useStore } from "./state/store";
-import { connectWs, disconnectWs, sendTestMessage } from "./core/ws";
+import { connectWs, disconnectWs, sendChatMessage, cancelRun } from "./core/ws";
+import { CardStream } from "./components/CardStream";
+import { CoreVisual } from "./components/CoreVisual";
+import { CommandPalette } from "./components/CommandPalette";
 
 function App() {
-  const { wsStatus, backendConfig, setBackendConfig, eventTimeline, assistantState, lastError, setLastError } = useStore();
+  const { backendConfig, setBackendConfig, assistantState, lastError, setLastError, uiMode, sessions, activeSessionId, setActiveSessionId } = useStore();
   const [input, setInput] = useState("");
 
   useEffect(() => {
@@ -21,6 +26,7 @@ function App() {
           setBackendConfig({
             port: handle.port,
             tokenSet: !!handle.token,
+            token: handle.token,
             origin: handle.origin,
           });
           connectWs(handle.port, handle.token);
@@ -46,6 +52,34 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    register('CommandOrControl+Alt+Space', async (shortcut) => {
+      if (shortcut.state === 'Pressed') {
+        const mode = useStore.getState().uiMode;
+        const newMode = mode === 'full' ? 'hud' : 'full';
+        useStore.getState().setUiMode(newMode);
+        const win = getCurrentWindow();
+        if (newMode === 'hud') {
+          await win.setSize(new LogicalSize(420, 120));
+          await win.setDecorations(false);
+          await win.setAlwaysOnTop(true);
+          await win.center();
+        } else {
+          await win.setSize(new LogicalSize(1024, 768));
+          await win.setDecorations(true);
+          await win.setAlwaysOnTop(false);
+          await win.center();
+        }
+        await win.show();
+        await win.setFocus();
+      }
+    }).catch(console.error);
+
+    return () => {
+      // In Tauri v2 we don't unregister all by default, but it's ok for this scope
+    };
+  }, []);
+
   // Phase 2: clear the error banner when the agent returns to IDLE
   // (i.e. the degraded run has concluded and a new run can start).
   useEffect(() => {
@@ -54,24 +88,136 @@ function App() {
     }
   }, [assistantState?.state]);
 
+  // Fetch sessions when backend is ready
+  useEffect(() => {
+    if (!backendConfig || !backendConfig.tokenSet) return;
+    const fetchSessions = async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${backendConfig.port}/v1/sessions`, {
+          headers: { Authorization: `Bearer ${backendConfig.token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          useStore.getState().setSessions(data.sessions);
+        }
+      } catch (err) {
+        console.error("Failed to fetch sessions:", err);
+      }
+    };
+    fetchSessions();
+  }, [backendConfig]);
+
+  const handleSend = () => {
+    if (!input.trim() || !activeSessionId) return;
+    sendChatMessage(activeSessionId, input);
+    setInput("");
+  };
+
+  const handleStop = () => {
+    if (assistantState?.run_id) {
+      cancelRun(assistantState.run_id);
+    }
+  };
+
+  const isRunning = assistantState && !['IDLE', 'ERROR', 'OFFLINE'].includes(assistantState.state) && assistantState.run_id;
+
+  if (uiMode === 'hud') {
+    return (
+      <div
+        data-tauri-drag-region
+        style={{
+          display: 'flex',
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: '#1e1e1e',
+          color: '#fff',
+          alignItems: 'center',
+          padding: '0 20px',
+          boxSizing: 'border-box',
+          border: '1px solid #333',
+          borderRadius: '8px',
+          overflow: 'hidden'
+        }}
+      >
+        <div style={{ pointerEvents: 'none' }}>
+          <CoreVisual />
+        </div>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && input.trim()) {
+              handleSend();
+              // Auto-switch to full mode on query
+              useStore.getState().setUiMode('full');
+              const win = getCurrentWindow();
+              win.setSize(new LogicalSize(1024, 768)).then(() => {
+                win.setDecorations(true);
+                win.setAlwaysOnTop(false);
+                win.center();
+              });
+            }
+          }}
+          placeholder="Ask Artemis..."
+          style={{
+            flex: 1,
+            marginLeft: '15px',
+            padding: '10px',
+            borderRadius: '4px',
+            border: 'none',
+            backgroundColor: '#2d2d2d',
+            color: '#fff',
+            outline: 'none',
+            fontSize: '1rem'
+          }}
+          autoFocus
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', fontFamily: 'sans-serif', backgroundColor: '#1e1e1e', color: '#fff' }}>
-      
-      {/* RAIL */}
-      <div style={{ width: '60px', backgroundColor: '#252526', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
-        <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#007acc', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-          A
+
+      {/* SIDEBAR (Phase 3 navigation) */}
+      <div style={{ width: '250px', backgroundColor: '#252526', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '20px', fontWeight: 'bold', borderBottom: '1px solid #333' }}>Sessions</div>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {sessions.map((session) => (
+            <div
+              key={session.id}
+              onClick={() => setActiveSessionId(session.id)}
+              style={{
+                padding: '10px 20px',
+                cursor: 'pointer',
+                backgroundColor: activeSessionId === session.id ? '#37373d' : 'transparent',
+                borderBottom: '1px solid #333',
+                fontSize: '0.9rem',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {session.title || session.id}
+            </div>
+          ))}
+          {sessions.length === 0 && (
+            <div style={{ padding: '10px 20px', color: '#888', fontSize: '0.9rem' }}>No sessions found</div>
+          )}
         </div>
-        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: wsStatus === 'connected' ? '#4caf50' : wsStatus === 'connecting' ? '#ff9800' : '#f44336', marginTop: 'auto' }} title={`WS Status: ${wsStatus}`} />
       </div>
 
       {/* STAGE */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#1e1e1e', position: 'relative' }}>
-        <div style={{ padding: '20px', borderBottom: '1px solid #333' }}>
-          <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#d4d4d4' }}>ARTEMIS Phase 2: Streaming Conversation</h2>
-          <div style={{ fontSize: '0.8rem', color: '#888', marginTop: '5px' }}>
-            Port: {backendConfig?.port || '—'} | Origin: {backendConfig?.origin || '—'} | Auth: {backendConfig?.tokenSet ? 'Ready' : 'Pending'}
+        <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#d4d4d4' }}>ARTEMIS Phase 3: Dynamic Assistant State</h2>
+            <div style={{ fontSize: '0.8rem', color: '#888', marginTop: '5px' }}>
+              Port: {backendConfig?.port || '—'} | Origin: {backendConfig?.origin || '—'} | Auth: {backendConfig?.tokenSet ? 'Ready' : 'Pending'}
+            </div>
           </div>
+          <CoreVisual />
         </div>
 
         {/* Phase 2 error banner — shows agent.error code with dismiss */}
@@ -127,49 +273,42 @@ function App() {
           </div>
         )}
 
-        <div style={{ flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column-reverse' }}>
-          {eventTimeline.map((ev, i) => (
-            <div key={i} style={{ marginBottom: '10px', padding: '10px', backgroundColor: '#2d2d2d', borderRadius: '4px', borderLeft: '4px solid #007acc' }}>
-              <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                <span>SEQ: {ev.seq || '-'}</span>
-                <span>{new Date(ev.ts).toLocaleTimeString()}</span>
-              </div>
-              <div style={{ fontWeight: 'bold', color: '#d4d4d4', marginBottom: '4px' }}>{ev.type}</div>
-              <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#ce9178' }}>
-                {JSON.stringify(ev.data, null, 2)}
-              </pre>
-            </div>
-          ))}
-          {eventTimeline.length === 0 && (
-            <div style={{ color: '#888', textAlign: 'center', marginTop: '20px' }}>No events yet. Waiting for backend...</div>
+        <CardStream />
+
+        {/* INPUT */}
+        <div style={{ padding: '20px', borderTop: '1px solid #333', display: 'flex', gap: '10px' }}>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Type a message (Ctrl+K for commands)..."
+            style={{ flex: 1, padding: '10px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#3c3c3c', color: '#fff' }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim()}
+            style={{ padding: '10px 20px', borderRadius: '4px', border: 'none', backgroundColor: input.trim() ? '#007acc' : '#555', color: '#fff', cursor: input.trim() ? 'pointer' : 'not-allowed' }}
+          >
+            Send
+          </button>
+          {isRunning && (
+            <button
+              id="stop-generation"
+              onClick={handleStop}
+              style={{ padding: '10px 20px', borderRadius: '4px', border: '1px solid #c0392b', backgroundColor: 'transparent', color: '#e74c3c', cursor: 'pointer' }}
+            >
+              Stop
+            </button>
           )}
         </div>
-
-        <div style={{ padding: '20px', borderTop: '1px solid #333', backgroundColor: '#252526' }}>
-          <div style={{ display: 'flex' }}>
-            <input 
-              type="text" 
-              value={input} 
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { sendTestMessage(input); setInput(''); } }}
-              placeholder="Test chat.send event..."
-              style={{ flex: 1, padding: '10px', backgroundColor: '#3c3c3c', color: '#fff', border: '1px solid #555', borderRadius: '4px 0 0 4px', outline: 'none' }}
-            />
-            <button 
-              onClick={() => { sendTestMessage(input); setInput(''); }}
-              disabled={wsStatus !== 'connected' || !input.trim()}
-              style={{ padding: '10px 20px', backgroundColor: '#007acc', color: '#fff', border: 'none', borderRadius: '0 4px 4px 0', cursor: wsStatus === 'connected' ? 'pointer' : 'not-allowed', opacity: wsStatus === 'connected' ? 1 : 0.5 }}
-            >
-              Send
-            </button>
-          </div>
-        </div>
       </div>
+      <CommandPalette />
 
       {/* CONTEXT PANEL */}
       <div style={{ width: '300px', backgroundColor: '#252526', borderLeft: '1px solid #333', padding: '20px', display: 'flex', flexDirection: 'column' }}>
         <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', color: '#d4d4d4' }}>Context</h3>
-        
+
         <div style={{ marginBottom: '20px' }}>
           <div style={{ fontSize: '0.8rem', color: '#888', textTransform: 'uppercase', marginBottom: '8px' }}>Assistant State</div>
           <div style={{ padding: '10px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #333' }}>

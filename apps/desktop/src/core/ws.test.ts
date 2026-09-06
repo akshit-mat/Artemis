@@ -42,7 +42,7 @@ describe('WebSocket Client', () => {
     useStore.setState({
       wsStatus: 'disconnected',
       eventTimeline: [],
-      assistantState: { state: 'idle', intensity: 0 },
+      assistantState: { state: 'idle', intensity: 0, progress: null, detail: null, run_id: null },
     });
     
     // Reset module seq state
@@ -87,7 +87,7 @@ describe('WebSocket Client', () => {
       session_id: 's_1',
       data: {
         last_seq: 10,
-        assistant_state: { state: 'idle', intensity: 0 },
+        assistant_state: { state: 'idle', intensity: 0, progress: null, detail: null, run_id: null },
         model: {},
         pending_approvals: []
       }
@@ -160,7 +160,7 @@ describe('WebSocket Client', () => {
       session_id: 's_1',
       data: {
         last_seq: 50,
-        assistant_state: { state: 'idle', intensity: 0 },
+        assistant_state: { state: 'idle', intensity: 0, progress: null, detail: null, run_id: null },
         model: {},
         pending_approvals: []
       }

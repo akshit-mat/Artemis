@@ -1,10 +1,13 @@
 import { useStore } from '../state/store';
+import { bufferDelta } from './deltaBuffer';
 import type { components } from '../api/types';
 
 type WSEnvelope = components["schemas"]["WSEnvelope"];
 type SessionReadyData = components["schemas"]["SessionReadyData"];
 type AssistantStateData = components["schemas"]["AssistantStateData"];
 type SessionStateResponse = components["schemas"]["SessionStateResponse"];
+type AgentDeltaData = components["schemas"]["AgentDeltaData"];
+type AgentMessageData = components["schemas"]["AgentMessageData"];
 
 let ws: WebSocket | null = null;
 let currentSeq = 0;
@@ -82,6 +85,22 @@ function connectInternal() {
       } else if (envelope.type === 'agent.state') {
         const payload = envelope.data as unknown as AssistantStateData;
         store.setAssistantState(payload);
+
+      } else if (envelope.type === 'agent.delta') {
+        const payload = envelope.data as unknown as AgentDeltaData;
+        if (envelope.run_id) {
+          bufferDelta(envelope.run_id, payload.channel, payload.text);
+        }
+
+      } else if (envelope.type === 'agent.message') {
+        const payload = envelope.data as unknown as AgentMessageData;
+        store.addCard({
+          id: envelope.run_id || payload.message_id,
+          type: 'message',
+          role: payload.role,
+          content: payload.content,
+          finish_reason: payload.finish_reason,
+        });
 
       } else if (envelope.type === 'agent.error') {
         // Phase 2 requirement: degraded modes surface a distinct code in the UI banner.

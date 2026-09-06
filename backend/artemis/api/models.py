@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Optional
 class AssistantStateData(BaseModel):
     state: str
     intensity: float
+    progress: Optional[float] = None
+    detail: Optional[str] = None
+    run_id: Optional[str] = None
 
 
 class SessionReadyData(BaseModel):
