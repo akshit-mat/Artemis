@@ -1,4 +1,3 @@
-import logging
 import uuid
 import anyio
 from datetime import datetime, timezone
@@ -13,7 +12,9 @@ from ..api.events import bus
 from ..models.base import GenOptions
 from .policy import should_use_reasoning
 
-log = logging.getLogger("agent.loop")
+from ..obs.logging import get_logger
+
+log = get_logger("agent.loop")
 
 class AgentOrchestrator:
     def __init__(self,
@@ -168,11 +169,11 @@ class AgentOrchestrator:
 
         except TimeoutError:
             # Wall clock timeout
-            log.error("run_wall_clock_timeout run_id=%s", run_id)
+            log.error("run_wall_clock_timeout", run_id=run_id)
             await self._fail_run(run_id, session_id, "MODEL_TIMEOUT", "Agent turn wall clock timeout")
         except RuntimeError as e:
             # Provider errors
-            log.error("run_provider_error run_id=%s error=%s", run_id, str(e))
+            log.error("run_provider_error", run_id=run_id, error=str(e))
             # error_code is captured during the loop, default to INTERNAL if missed
             code = error_code or "INTERNAL"
             if code == "CANCELLED":
@@ -182,7 +183,7 @@ class AgentOrchestrator:
                 await self._fail_run(run_id, session_id, code, str(e))
         except Exception as e:
             # Other uncaught errors
-            log.error("run_internal_error run_id=%s error=%s", run_id, str(e), exc_info=True)
+            log.error("run_internal_error", run_id=run_id, error=str(e), exc_info=True)
             await self._fail_run(run_id, session_id, "INTERNAL", "Internal agent error")
         finally:
             run_manager.unregister(run_id)

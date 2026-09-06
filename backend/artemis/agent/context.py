@@ -1,11 +1,11 @@
-import logging
 from typing import Any, Dict, List, Tuple
 from dataclasses import dataclass
 import sqlite3
 
 from ..models.base import Message
+from ..obs.logging import get_logger
 
-log = logging.getLogger("agent.context")
+log = get_logger("agent.context")
 
 @dataclass
 class AssemblyResult:

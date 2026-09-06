@@ -1,8 +1,8 @@
 import anyio
-import logging
 from typing import Dict
+from ..obs.logging import get_logger
 
-log = logging.getLogger("agent.manager")
+log = get_logger("agent.manager")
 
 class AgentRunManager:
     """Tracks active runs and their cancellation scopes."""
