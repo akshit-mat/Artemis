@@ -421,7 +421,13 @@ class PathPolicy:
 
     # -- syntactic validation (steps 1-6) ------------------------------------
 
-    def _syntax_check(self, candidate: str, *, raw: str) -> None:
+    def _character_check(self, candidate: str, *, raw: str) -> None:
+        """Cheap checks that are valid before ``%VAR%`` expansion.
+
+        Applied to the raw string first so a hostile variable name cannot even
+        be looked up, and then implied again by :meth:`_syntax_check` on the
+        expanded string.
+        """
         if not candidate or not candidate.strip():
             raise PathRejected("PATH_INVALID", "The path is empty.", raw=raw)
         if len(candidate) > baseline.MAX_PATH_CHARS:
@@ -445,6 +451,9 @@ class PathPolicy:
             raise PathRejected(
                 "PATH_DENIED", "Extended-length device syntax is not permitted.", raw=raw
             )
+
+    def _syntax_check(self, candidate: str, *, raw: str) -> None:
+        self._character_check(candidate, raw=raw)
 
         normalized = candidate.replace("/", "\\")
 
@@ -543,7 +552,7 @@ class PathPolicy:
         if not isinstance(raw_path, str):
             raise PathRejected("PATH_INVALID", "The path must be a string.")
         raw = raw_path
-        self._syntax_check(raw, raw=raw)
+        self._character_check(raw, raw=raw)
         expanded = self._expand_env(_nfc(raw))
         self._syntax_check(expanded, raw=raw)
 
