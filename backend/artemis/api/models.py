@@ -87,3 +87,49 @@ class ChatSendData(BaseModel):
 class RunCancelData(BaseModel):
     run_id: str
     reason: Optional[str] = None
+
+class ToolRequestedData(BaseModel):
+    call_id: str
+    tool: str
+    category: str
+    risk: str
+    args_preview: str
+    targets: List[str]
+    item_count: int
+    taint: bool
+
+class ToolDecisionData(BaseModel):
+    call_id: str
+    decision: str
+    rule_id: str
+    reason: str
+
+class ToolStartedData(BaseModel):
+    call_id: str
+
+class ToolProgressData(BaseModel):
+    call_id: str
+    progress: float
+
+class ToolResultData(BaseModel):
+    call_id: str
+    status: str
+    summary: str
+    result_id: str
+    duration_ms: int
+    truncated: bool
+    undo_available: bool
+    error_code: Optional[str] = None
+
+class ApprovalRequestedData(BaseModel):
+    id: str
+    run_id: str
+    tool_name: str
+    action_text: str
+    targets: List[str]
+    risk: str
+    batch_count: int
+
+class ApprovalResolvedData(BaseModel):
+    id: str
+    decision: str

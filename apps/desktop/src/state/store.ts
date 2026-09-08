@@ -20,12 +20,33 @@ interface BufferedDelta {
 export type CardType = 'message' | 'tool' | 'approval' | 'denial' | 'task' | 'error';
 
 export interface Card {
-  id: string; // msg_id or run_id
+  id: string; // msg_id, run_id, call_id, or approval_id
   type: CardType;
   role?: string;
-  content: string;
+  content?: string;
   reasoning?: string;
   finish_reason?: string;
+
+  // Tool specific fields
+  tool_name?: string;
+  category?: string;
+  risk?: string;
+  args_preview?: string;
+  targets?: string[];
+  item_count?: number;
+  taint?: boolean;
+  tool_state?: 'requested' | 'decision' | 'waiting_for_approval' | 'started' | 'progress' | 'result' | 'denied' | 'error';
+  decision?: string; // ALLOW/DENY
+  rule_id?: string;
+  reason?: string;
+  progress?: number;
+  status?: string;
+  summary?: string;
+  duration_ms?: number;
+  
+  // Approval specific fields
+  action_text?: string;
+  batch_count?: number;
 }
 
 interface AppState {

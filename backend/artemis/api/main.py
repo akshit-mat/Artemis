@@ -47,6 +47,8 @@ async def lifespan(app: FastAPI):
     # Initialize DB schema off the event loop
     import asyncio
     await asyncio.to_thread(init_db, db)
+    if hasattr(app.state, "fs_scope"):
+        await app.state.fs_scope.load()
     yield
     await asyncio.to_thread(db.shutdown)
 
@@ -71,7 +73,43 @@ session_repo = SessionRepository(db)
 app.state.run_repo = run_repo
 app.state.message_repo = message_repo
 app.state.session_repo = session_repo
-app.state.agent_orchestrator = AgentOrchestrator(run_repo, message_repo, app.state.model_registry, session_repo)
+
+# Phase 4/5 Component Wiring
+from ..tools.registry import ToolRegistry
+from ..tools.builtin import register_builtin_tools
+from ..tools.results import ResultStore
+from ..tools.builtin.meta import bind_result_store
+from ..obs.audit import AuditWriter
+from ..tools.runtime import ToolRuntime
+from ..policy.approvals import ApprovalManager
+from ..policy.engine import PolicyEngine
+from ..policy.store import PolicyStore
+from ..policy.fsconfig import FilesystemScope
+from ..agent.tools import ToolMediator
+from .events import bus
+
+registry = register_builtin_tools(ToolRegistry(capabilities={"windows", "psutil", "cpu"}))
+store = ResultStore(db)
+bind_result_store(store)
+audit = AuditWriter(db)
+runtime = ToolRuntime(audit=audit, result_store=store)
+approvals = ApprovalManager(db)
+app.state.approvals = approvals
+
+fs_scope = FilesystemScope(db=db)
+app.state.fs_scope = fs_scope
+
+mediator = ToolMediator(
+    engine=PolicyEngine(),
+    runtime=runtime,
+    approvals=approvals,
+    audit=audit,
+    store=PolicyStore(db),
+    fs_scope=fs_scope,
+    registry=registry,
+    publish=bus.publish,
+)
+app.state.agent_orchestrator = AgentOrchestrator(run_repo, message_repo, app.state.model_registry, session_repo, mediator=mediator)
 
 install_exception_handlers(app)
 
@@ -203,13 +241,15 @@ async def get_session_state(request: Request, session_id: str) -> SessionStateRe
         )
 
     from ..agent.state import state_computer
+    
+    approvals = request.app.state.approvals.pending() if hasattr(request.app.state, "approvals") else []
 
     return SessionStateResponse(
         session_id=session_id,
         last_seq=bus.current_seq,
         assistant_state=AssistantStateData(**state_computer.compute()),
         active_run=None,
-        pending_approvals=[],
+        pending_approvals=[a.model_dump() for a in approvals],
         active_task=None,
     )
 
@@ -259,3 +299,85 @@ async def select_model(request: Request, body: ModelSelectionReq):
 
 
 app.include_router(ws_router, prefix="/v1")
+
+
+# --------------------------------------------------------------------------
+# Approvals
+# --------------------------------------------------------------------------
+
+@app.get("/v1/approvals")
+async def list_approvals(request: Request):
+    approvals = request.app.state.approvals.pending()
+    return {"approvals": [a.model_dump() for a in approvals]}
+
+class ApprovalResponseReq(BaseModel):
+    action: str
+    scope: str = "once"
+
+@app.post("/v1/approvals/{approval_id}")
+async def respond_approval(request: Request, approval_id: str, payload: ApprovalResponseReq):
+    from ..policy.approvals import ApprovalError
+    try:
+        await request.app.state.approvals.respond(approval_id, payload.action, payload.scope)
+        return {"status": "ok"}
+    except ApprovalError as e:
+        status_code = 400
+        if e.code == "APPROVAL_UNKNOWN":
+            status_code = 404
+        elif e.code == "APPROVAL_REPLAY":
+            status_code = 409
+        raise ApiError(ErrorCode.BAD_REQUEST if status_code != 404 else ErrorCode.NOT_FOUND, str(e), status_code=status_code)
+    except Exception as e:
+        raise ApiError(ErrorCode.BAD_REQUEST, str(e), status_code=400)
+
+# --------------------------------------------------------------------------
+# Grants / Permissions
+# --------------------------------------------------------------------------
+
+@app.get("/v1/grants")
+async def list_grants(request: Request):
+    from ..policy.store import PolicyStore
+    store = PolicyStore(request.app.state.db)
+    grants = await store.list_grants()
+    return {"grants": [g.model_dump() for g in grants]}
+
+@app.delete("/v1/grants/{grant_id}")
+async def revoke_grant(request: Request, grant_id: str):
+    from ..policy.store import PolicyStore
+    store = PolicyStore(request.app.state.db)
+    await store.revoke_grant(grant_id)
+    return {"status": "ok"}
+
+# --------------------------------------------------------------------------
+# Filesystem Scope Settings
+# --------------------------------------------------------------------------
+
+@app.get("/v1/settings/fs")
+async def get_fs_settings(request: Request):
+    fs = request.app.state.fs_scope
+    return {"allow_roots": fs.allow_roots}
+
+class AddRootReq(BaseModel):
+    root: str
+    confirm_risk: bool = False
+
+@app.post("/v1/settings/fs/roots")
+async def add_fs_root(request: Request, payload: AddRootReq):
+    fs = request.app.state.fs_scope
+    try:
+        await fs.add_root(payload.root, confirm_risk=payload.confirm_risk)
+        return {"allow_roots": fs.allow_roots}
+    except Exception as e:
+        raise ApiError(ErrorCode.BAD_REQUEST, str(e), status_code=400)
+
+class RemoveRootReq(BaseModel):
+    root: str
+
+@app.delete("/v1/settings/fs/roots")
+async def remove_fs_root(request: Request, payload: RemoveRootReq):
+    fs = request.app.state.fs_scope
+    try:
+        await fs.remove_root(payload.root)
+        return {"allow_roots": fs.allow_roots}
+    except Exception as e:
+        raise ApiError(ErrorCode.BAD_REQUEST, str(e), status_code=400)

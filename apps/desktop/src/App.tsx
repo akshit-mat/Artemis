@@ -8,10 +8,12 @@ import { connectWs, disconnectWs, sendChatMessage, cancelRun } from "./core/ws";
 import { CardStream } from "./components/CardStream";
 import { CoreVisual } from "./components/CoreVisual";
 import { CommandPalette } from "./components/CommandPalette";
+import { SettingsView } from "./components/SettingsView";
 
 function App() {
   const { backendConfig, setBackendConfig, assistantState, lastError, setLastError, uiMode, sessions, activeSessionId, setActiveSessionId } = useStore();
   const [input, setInput] = useState("");
+  const [activeTab, setActiveTab] = useState<"chat" | "settings">("chat");
 
   useEffect(() => {
     let isInitialized = false;
@@ -206,6 +208,14 @@ function App() {
             <div style={{ padding: '10px 20px', color: '#888', fontSize: '0.9rem' }}>No sessions found</div>
           )}
         </div>
+        <div style={{ padding: '20px', borderTop: '1px solid #333' }}>
+          <button 
+            onClick={() => setActiveTab(activeTab === 'chat' ? 'settings' : 'chat')}
+            style={{ width: '100%', padding: '10px', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            {activeTab === 'chat' ? '⚙️ Settings' : '💬 Chat'}
+          </button>
+        </div>
       </div>
 
       {/* STAGE */}
@@ -273,35 +283,41 @@ function App() {
           </div>
         )}
 
-        <CardStream />
+        {activeTab === 'settings' ? (
+          <SettingsView />
+        ) : (
+          <>
+            <CardStream />
 
-        {/* INPUT */}
-        <div style={{ padding: '20px', borderTop: '1px solid #333', display: 'flex', gap: '10px' }}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Type a message (Ctrl+K for commands)..."
-            style={{ flex: 1, padding: '10px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#3c3c3c', color: '#fff' }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim()}
-            style={{ padding: '10px 20px', borderRadius: '4px', border: 'none', backgroundColor: input.trim() ? '#007acc' : '#555', color: '#fff', cursor: input.trim() ? 'pointer' : 'not-allowed' }}
-          >
-            Send
-          </button>
-          {isRunning && (
-            <button
-              id="stop-generation"
-              onClick={handleStop}
-              style={{ padding: '10px 20px', borderRadius: '4px', border: '1px solid #c0392b', backgroundColor: 'transparent', color: '#e74c3c', cursor: 'pointer' }}
-            >
-              Stop
-            </button>
-          )}
-        </div>
+            {/* INPUT */}
+            <div style={{ padding: '20px', borderTop: '1px solid #333', display: 'flex', gap: '10px' }}>
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                placeholder="Type a message (Ctrl+K for commands)..."
+                style={{ flex: 1, padding: '10px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#3c3c3c', color: '#fff' }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                style={{ padding: '10px 20px', borderRadius: '4px', border: 'none', backgroundColor: input.trim() ? '#007acc' : '#555', color: '#fff', cursor: input.trim() ? 'pointer' : 'not-allowed' }}
+              >
+                Send
+              </button>
+              {isRunning && (
+                <button
+                  id="stop-generation"
+                  onClick={handleStop}
+                  style={{ padding: '10px 20px', borderRadius: '4px', border: '1px solid #c0392b', backgroundColor: 'transparent', color: '#e74c3c', cursor: 'pointer' }}
+                >
+                  Stop
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
       <CommandPalette />
 

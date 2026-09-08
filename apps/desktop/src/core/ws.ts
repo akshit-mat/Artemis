@@ -8,6 +8,13 @@ type AssistantStateData = components["schemas"]["AssistantStateData"];
 type SessionStateResponse = components["schemas"]["SessionStateResponse"];
 type AgentDeltaData = components["schemas"]["AgentDeltaData"];
 type AgentMessageData = components["schemas"]["AgentMessageData"];
+type ToolRequestedData = components["schemas"]["ToolRequestedData"];
+type ToolDecisionData = components["schemas"]["ToolDecisionData"];
+type ToolStartedData = components["schemas"]["ToolStartedData"];
+type ToolProgressData = components["schemas"]["ToolProgressData"];
+type ToolResultData = components["schemas"]["ToolResultData"];
+type ApprovalRequestedData = components["schemas"]["ApprovalRequestedData"];
+type ApprovalResolvedData = components["schemas"]["ApprovalResolvedData"];
 
 let ws: WebSocket | null = null;
 let currentSeq = 0;
@@ -113,6 +120,58 @@ function connectInternal() {
         };
         store.setLastError(err);
 
+      } else if (envelope.type === 'tool.requested') {
+        const payload = envelope.data as unknown as ToolRequestedData;
+        store.addCard({
+          id: payload.call_id,
+          type: 'tool',
+          tool_name: payload.tool,
+          category: payload.category,
+          risk: payload.risk,
+          args_preview: payload.args_preview,
+          targets: payload.targets,
+          item_count: payload.item_count,
+          taint: payload.taint,
+          tool_state: 'requested',
+        });
+      } else if (envelope.type === 'tool.decision') {
+        const payload = envelope.data as unknown as ToolDecisionData;
+        store.updateCard(payload.call_id, {
+          type: payload.decision === 'deny' ? 'denial' : 'tool',
+          tool_state: payload.decision === 'ask' ? 'waiting_for_approval' : (payload.decision === 'deny' ? 'denied' : 'decision'),
+          decision: payload.decision,
+          rule_id: payload.rule_id,
+          reason: payload.reason,
+        });
+      } else if (envelope.type === 'approval.requested') {
+        const payload = envelope.data as unknown as ApprovalRequestedData;
+        store.addCard({
+          id: payload.id,
+          type: 'approval',
+          tool_name: payload.tool_name,
+          action_text: payload.action_text,
+          targets: payload.targets,
+          risk: payload.risk,
+          batch_count: payload.batch_count,
+        });
+      } else if (envelope.type === 'approval.resolved') {
+        const payload = envelope.data as unknown as ApprovalResolvedData;
+        store.updateCard(payload.id, { decision: payload.decision });
+      } else if (envelope.type === 'tool.started') {
+        const payload = envelope.data as unknown as ToolStartedData;
+        store.updateCard(payload.call_id, { tool_state: 'started' });
+      } else if (envelope.type === 'tool.progress') {
+        const payload = envelope.data as unknown as ToolProgressData;
+        store.updateCard(payload.call_id, { tool_state: 'progress', progress: payload.progress });
+      } else if (envelope.type === 'tool.result') {
+        const payload = envelope.data as unknown as ToolResultData;
+        store.updateCard(payload.call_id, { 
+          type: payload.status === 'error' ? 'error' : 'tool',
+          tool_state: payload.status === 'error' ? 'error' : 'result',
+          status: payload.status,
+          summary: payload.summary,
+          duration_ms: payload.duration_ms
+        });
       } else if (envelope.type === 'client.resync_required') {
         // The server's replay buffer no longer covers our last_seq.
         // Fetch authoritative state from the HTTP endpoint and restore.

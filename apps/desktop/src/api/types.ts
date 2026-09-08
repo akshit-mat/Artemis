@@ -114,10 +114,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Approvals */
+        get: operations["list_approvals_v1_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/approvals/{approval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Respond Approval */
+        post: operations["respond_approval_v1_approvals__approval_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Grants */
+        get: operations["list_grants_v1_grants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/grants/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Grant */
+        delete: operations["revoke_grant_v1_grants__grant_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/fs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Fs Settings */
+        get: operations["get_fs_settings_v1_settings_fs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/fs/roots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Fs Root */
+        post: operations["add_fs_root_v1_settings_fs_roots_post"];
+        /** Remove Fs Root */
+        delete: operations["remove_fs_root_v1_settings_fs_roots_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddRootReq */
+        AddRootReq: {
+            /** Root */
+            root: string;
+            /**
+             * Confirm Risk
+             * @default false
+             */
+            confirm_risk: boolean;
+        };
+        /** ApprovalResponseReq */
+        ApprovalResponseReq: {
+            /** Action */
+            action: string;
+            /**
+             * Scope
+             * @default once
+             */
+            scope: string;
+        };
         /** AssistantStateData */
         AssistantStateData: {
             /** State */
@@ -151,6 +274,11 @@ export interface components {
             role: string;
             /** Model Id */
             model_id: string;
+        };
+        /** RemoveRootReq */
+        RemoveRootReq: {
+            /** Root */
+            root: string;
         };
         /**
          * SessionStateResponse
@@ -228,6 +356,30 @@ export interface components {
              */
             incomplete: boolean | null;
         };
+        /** ApprovalRequestedData */
+        ApprovalRequestedData: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Tool Name */
+            tool_name: string;
+            /** Action Text */
+            action_text: string;
+            /** Targets */
+            targets: string[];
+            /** Risk */
+            risk: string;
+            /** Batch Count */
+            batch_count: number;
+        };
+        /** ApprovalResolvedData */
+        ApprovalResolvedData: {
+            /** Id */
+            id: string;
+            /** Decision */
+            decision: string;
+        };
         /** ChatSendData */
         ChatSendData: {
             /** Session Id */
@@ -266,6 +418,70 @@ export interface components {
         SystemEchoData: {
             /** Echoed Text */
             echoed_text: string;
+        };
+        /** ToolDecisionData */
+        ToolDecisionData: {
+            /** Call Id */
+            call_id: string;
+            /** Decision */
+            decision: string;
+            /** Rule Id */
+            rule_id: string;
+            /** Reason */
+            reason: string;
+        };
+        /** ToolProgressData */
+        ToolProgressData: {
+            /** Call Id */
+            call_id: string;
+            /** Progress */
+            progress: number;
+        };
+        /** ToolRequestedData */
+        ToolRequestedData: {
+            /** Call Id */
+            call_id: string;
+            /** Tool */
+            tool: string;
+            /** Category */
+            category: string;
+            /** Risk */
+            risk: string;
+            /** Args Preview */
+            args_preview: string;
+            /** Targets */
+            targets: string[];
+            /** Item Count */
+            item_count: number;
+            /** Taint */
+            taint: boolean;
+        };
+        /** ToolResultData */
+        ToolResultData: {
+            /** Call Id */
+            call_id: string;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary: string;
+            /** Result Id */
+            result_id: string;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Undo Available */
+            undo_available: boolean;
+            /**
+             * Error Code
+             * @default null
+             */
+            error_code: string | null;
+        };
+        /** ToolStartedData */
+        ToolStartedData: {
+            /** Call Id */
+            call_id: string;
         };
         /** WSEnvelope */
         WSEnvelope: {
@@ -436,6 +652,198 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ModelSelectionReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_approvals_v1_approvals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    respond_approval_v1_approvals__approval_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalResponseReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_grants_v1_grants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    revoke_grant_v1_grants__grant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_fs_settings_v1_settings_fs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    add_fs_root_v1_settings_fs_roots_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddRootReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_fs_root_v1_settings_fs_roots_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveRootReq"];
             };
         };
         responses: {

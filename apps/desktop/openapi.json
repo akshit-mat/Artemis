@@ -165,10 +165,248 @@
           }
         }
       }
+    },
+    "/v1/approvals": {
+      "get": {
+        "summary": "List Approvals",
+        "operationId": "list_approvals_v1_approvals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/approvals/{approval_id}": {
+      "post": {
+        "summary": "Respond Approval",
+        "operationId": "respond_approval_v1_approvals__approval_id__post",
+        "parameters": [
+          {
+            "name": "approval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Approval Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalResponseReq"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grants": {
+      "get": {
+        "summary": "List Grants",
+        "operationId": "list_grants_v1_grants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grants/{grant_id}": {
+      "delete": {
+        "summary": "Revoke Grant",
+        "operationId": "revoke_grant_v1_grants__grant_id__delete",
+        "parameters": [
+          {
+            "name": "grant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Grant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/fs": {
+      "get": {
+        "summary": "Get Fs Settings",
+        "operationId": "get_fs_settings_v1_settings_fs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/fs/roots": {
+      "post": {
+        "summary": "Add Fs Root",
+        "operationId": "add_fs_root_v1_settings_fs_roots_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddRootReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove Fs Root",
+        "operationId": "remove_fs_root_v1_settings_fs_roots_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveRootReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AddRootReq": {
+        "properties": {
+          "root": {
+            "type": "string",
+            "title": "Root"
+          },
+          "confirm_risk": {
+            "type": "boolean",
+            "title": "Confirm Risk",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "root"
+        ],
+        "title": "AddRootReq"
+      },
+      "ApprovalResponseReq": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": "once"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ApprovalResponseReq"
+      },
       "AssistantStateData": {
         "properties": {
           "state": {
@@ -253,6 +491,19 @@
           "model_id"
         ],
         "title": "ModelSelectionReq"
+      },
+      "RemoveRootReq": {
+        "properties": {
+          "root": {
+            "type": "string",
+            "title": "Root"
+          }
+        },
+        "type": "object",
+        "required": [
+          "root"
+        ],
+        "title": "RemoveRootReq"
       },
       "SessionStateResponse": {
         "properties": {
@@ -450,6 +701,70 @@
         "title": "AgentMessageData",
         "type": "object"
       },
+      "ApprovalRequestedData": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "action_text": {
+            "title": "Action Text",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "risk": {
+            "title": "Risk",
+            "type": "string"
+          },
+          "batch_count": {
+            "title": "Batch Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "tool_name",
+          "action_text",
+          "targets",
+          "risk",
+          "batch_count"
+        ],
+        "title": "ApprovalRequestedData",
+        "type": "object"
+      },
+      "ApprovalResolvedData": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "decision"
+        ],
+        "title": "ApprovalResolvedData",
+        "type": "object"
+      },
       "ChatSendData": {
         "properties": {
           "session_id": {
@@ -545,6 +860,171 @@
           "echoed_text"
         ],
         "title": "SystemEchoData",
+        "type": "object"
+      },
+      "ToolDecisionData": {
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "decision",
+          "rule_id",
+          "reason"
+        ],
+        "title": "ToolDecisionData",
+        "type": "object"
+      },
+      "ToolProgressData": {
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "progress": {
+            "title": "Progress",
+            "type": "number"
+          }
+        },
+        "required": [
+          "call_id",
+          "progress"
+        ],
+        "title": "ToolProgressData",
+        "type": "object"
+      },
+      "ToolRequestedData": {
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "risk": {
+            "title": "Risk",
+            "type": "string"
+          },
+          "args_preview": {
+            "title": "Args Preview",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "taint": {
+            "title": "Taint",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "call_id",
+          "tool",
+          "category",
+          "risk",
+          "args_preview",
+          "targets",
+          "item_count",
+          "taint"
+        ],
+        "title": "ToolRequestedData",
+        "type": "object"
+      },
+      "ToolResultData": {
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "undo_available": {
+            "title": "Undo Available",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          }
+        },
+        "required": [
+          "call_id",
+          "status",
+          "summary",
+          "result_id",
+          "duration_ms",
+          "truncated",
+          "undo_available"
+        ],
+        "title": "ToolResultData",
+        "type": "object"
+      },
+      "ToolStartedData": {
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id"
+        ],
+        "title": "ToolStartedData",
         "type": "object"
       },
       "WSEnvelope": {

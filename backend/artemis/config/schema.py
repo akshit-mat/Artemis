@@ -82,6 +82,43 @@ class LoggingConfig(_Model):
     """Never log message payloads by default (``docs/architecture.md`` §8)."""
 
 
+class FilesystemConfig(_Model):
+    """Phase 5 filesystem scope (``docs/security.md`` §5).
+
+    ``allow_roots`` may be extended by the user (each addition requires an
+    explicit risk confirmation in the UI); an empty list means the documented
+    defaults ``[Documents, Downloads, Desktop]``.  ``delete_mode`` is a closed
+    literal so *permanent deletion is not expressible in configuration at all*
+    (ADR-010).
+    """
+
+    allow_roots: list[str] = Field(default_factory=list)
+    allow_unc: bool = False
+    max_read_bytes: int = Field(default=512 * 1024, ge=1024)
+    max_batch_items: int = Field(default=200, ge=1)
+    delete_mode: Literal["recycle_bin"] = "recycle_bin"
+
+
+class PolicyModeConfig(_Model):
+    """Policy mode selection (``docs/security.md`` §3 "Rules & modes")."""
+
+    mode: Literal["strict", "standard", "permissive"] = "standard"
+
+
+class AgentConfig(_Model):
+    """Agent-loop guards (``docs/agent.md`` §2).  Configurable, never negotiable
+    by the model; the baseline clamps each one."""
+
+    max_steps: int = Field(default=6, ge=1)
+    turn_wall_clock_s: float = Field(default=120.0, gt=1.0)
+    first_token_timeout_s: float = Field(default=20.0, gt=1.0)
+    max_repair_attempts: int = Field(default=2, ge=0)
+    max_side_effect_calls_per_turn: int = Field(default=5, ge=0)
+    max_parallel_tool_calls: int = Field(default=1, ge=1)
+    repeated_call_limit: int = Field(default=3, ge=1)
+    tools_enabled: bool = True
+
+
 class ModelCapabilitiesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     tools: bool = False
@@ -114,6 +151,10 @@ class AppConfig(_Model):
     events: EventsConfig = EventsConfig()
     db: DbConfig = DbConfig()
     logging: LoggingConfig = LoggingConfig()
+    filesystem: FilesystemConfig = FilesystemConfig()
+    agent: AgentConfig = AgentConfig()
+    policy_mode: PolicyModeConfig = PolicyModeConfig()
+    audit_retention_days: int = Field(default=90, ge=1)
     models: list[ModelConfig] = Field(default_factory=list)
 
 

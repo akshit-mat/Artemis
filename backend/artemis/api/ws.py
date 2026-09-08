@@ -92,6 +92,8 @@ async def websocket_endpoint(websocket: WebSocket):
     
     conn = ClientConnection(websocket)
     
+    approvals = websocket.app.state.approvals.pending() if hasattr(websocket.app.state, "approvals") else []
+    
     ready_event = {
         "v": 1,
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -101,7 +103,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "last_seq": bus.current_seq,
             "assistant_state": {"state": "idle", "intensity": 0},
             "model": {"loaded": False},
-            "pending_approvals": []
+            "pending_approvals": [a.model_dump() for a in approvals]
         }
     }
     await conn.push_event(ready_event)

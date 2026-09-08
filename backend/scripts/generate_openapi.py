@@ -11,7 +11,9 @@ from fastapi.openapi.utils import get_openapi
 from artemis.api.models import (
     WSEnvelope, SessionReadyData, AgentDeltaData, AgentMessageData,
     AgentErrorData, SystemEchoData, AssistantStateData,
-    ChatSendData, RunCancelData
+    ChatSendData, RunCancelData,
+    ToolRequestedData, ToolDecisionData, ToolStartedData, ToolProgressData,
+    ToolResultData, ApprovalRequestedData, ApprovalResolvedData
 )
 
 from pydantic.json_schema import models_json_schema
@@ -23,7 +25,9 @@ def generate_openapi():
     models = [
         WSEnvelope, SessionReadyData, AgentDeltaData, AgentMessageData, 
         AgentErrorData, SystemEchoData, AssistantStateData,
-        ChatSendData, RunCancelData
+        ChatSendData, RunCancelData,
+        ToolRequestedData, ToolDecisionData, ToolStartedData, ToolProgressData,
+        ToolResultData, ApprovalRequestedData, ApprovalResolvedData
     ]
     
     _, top_level_schema = models_json_schema(
