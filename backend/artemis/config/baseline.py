@@ -69,6 +69,19 @@ MAX_LOG_FILE_BYTES: Final[int] = 64 * 1024 * 1024
 MAX_LOG_RETENTION_DAYS: Final[int] = 365
 MAX_READ_POOL_SIZE: Final[int] = 16
 
+# Phase 4/5 ceilings.  Configuration may lower these, never raise them.
+MAX_TOOL_TIMEOUT_S: Final[int] = 60  # docs/tools.md §2
+MAX_AGENT_STEPS: Final[int] = 6  # docs/agent.md §2
+MAX_TURN_WALL_CLOCK_S: Final[int] = 120
+MAX_FIRST_TOKEN_TIMEOUT_S: Final[int] = 20
+MAX_REPAIR_ATTEMPTS: Final[int] = 2
+MAX_SIDE_EFFECT_CALLS_PER_TURN: Final[int] = 5
+MAX_PARALLEL_TOOL_CALLS: Final[int] = 1  # Phase 4; read-only parallelism is Phase 8
+MAX_REPEATED_CALL_LIMIT: Final[int] = 3
+MAX_FILE_READ_BYTES: Final[int] = 512 * 1024  # docs/security.md §5
+MAX_BATCH_ITEMS: Final[int] = 200  # docs/tools.md §8
+MAX_AUDIT_RETENTION_DAYS: Final[int] = 365
+
 #: dotted config key -> baseline ceiling.  Values are integers only.
 _CEILINGS: Final[Mapping[str, int]] = MappingProxyType(
     {
@@ -81,6 +94,16 @@ _CEILINGS: Final[Mapping[str, int]] = MappingProxyType(
         "logging.max_file_bytes": MAX_LOG_FILE_BYTES,
         "logging.retention_days": MAX_LOG_RETENTION_DAYS,
         "db.read_pool_size": MAX_READ_POOL_SIZE,
+        "agent.max_steps": MAX_AGENT_STEPS,
+        "agent.turn_wall_clock_s": MAX_TURN_WALL_CLOCK_S,
+        "agent.first_token_timeout_s": MAX_FIRST_TOKEN_TIMEOUT_S,
+        "agent.max_repair_attempts": MAX_REPAIR_ATTEMPTS,
+        "agent.max_side_effect_calls_per_turn": MAX_SIDE_EFFECT_CALLS_PER_TURN,
+        "agent.max_parallel_tool_calls": MAX_PARALLEL_TOOL_CALLS,
+        "agent.repeated_call_limit": MAX_REPEATED_CALL_LIMIT,
+        "filesystem.max_read_bytes": MAX_FILE_READ_BYTES,
+        "filesystem.max_batch_items": MAX_BATCH_ITEMS,
+        "audit_retention_days": MAX_AUDIT_RETENTION_DAYS,
     }
 )
 
@@ -108,14 +131,15 @@ def clamp_to_baseline(flat: dict[str, object]) -> list[tuple[str, int, int]]:
     """Clamp a *flattened* config mapping in place.
 
     Returns the list of ``(key, requested, clamped)`` triples that were reduced,
-    so the caller can log them loudly.
+    so the caller can log them loudly.  Both ints and floats are clamped: some
+    Phase 4 guards (timeouts, wall clocks) are naturally fractional.
     """
     reductions: list[tuple[str, int, int]] = []
     for key, ceiling in _CEILINGS.items():
         if key not in flat:
             continue
         value = flat[key]
-        if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             continue  # schema validation reports the type error
         if value > ceiling:
             reductions.append((key, value, ceiling))

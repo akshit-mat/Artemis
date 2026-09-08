@@ -274,6 +274,10 @@ class SubprocessExecutor:
             "TEMP": os.environ.get("TEMP", ""),
             "ARTEMIS_WORKER": "1",
         }
+        # The self-test worker gate is forwarded only when this process already
+        # has it set.  ARTEMIS never sets it; the runtime cancellation tests do.
+        if os.environ.get("ARTEMIS_SELFTEST") == "1":
+            env["ARTEMIS_SELFTEST"] = "1"
         command = self._command(worker)
         try:
             process = await asyncio.create_subprocess_exec(
@@ -450,8 +454,10 @@ class ToolRuntime:
 
         result = await self._dispatch(spec, args, ctx)
         result.duration_ms = int((time.perf_counter() - started) * 1000)
-        if result.trust == "UNTRUSTED" and not spec.produces_untrusted_content:  # pragma: no cover
-            result.trust = "SYSTEM"
+        # ``produces_untrusted_content`` forces UNTRUSTED; a tool may *also*
+        # declare UNTRUSTED on its own (``read_more`` inherits its source's
+        # trust).  There is deliberately no path that downgrades UNTRUSTED to
+        # SYSTEM: that would weaken taint.
         if spec.produces_untrusted_content and result.status == "ok":
             result.trust = "UNTRUSTED"
         result.summary = truncate_summary(result.summary)
