@@ -26,6 +26,18 @@ class FakeProvider(ModelProvider):
         )
         # Tests can inject a sequence of chunks here to script the response
         self.scripted_chunks: list[Chunk] = []
+        # Multi-round scripting for the Phase 4 agent loop: one list per
+        # inference round, consumed in order.  Falls back to ``scripted_chunks``
+        # once exhausted.
+        self.scripted_rounds: list[list[Chunk]] = []
+        self.round_index: int = 0
+        # Number of times ``stream`` was entered (loop-guard assertions).
+        self.stream_calls: int = 0
+        self.captured_tools: list[list[dict[str, Any]] | None] = []
+        self.captured_messages: list[list[Message]] = []
+        # Optional: raise/emit a provider error on the first N calls.
+        self.fail_first_n: int = 0
+        self.fail_code: str = "MODEL_UNAVAILABLE"
         
         # Tests can inject a custom sleep per chunk to simulate streaming delays
         self.chunk_delay_s: float = 0.0
@@ -42,13 +54,33 @@ class FakeProvider(ModelProvider):
         options: GenOptions,
         cancel_token: anyio.CancelScope
     ) -> AsyncIterator[Chunk]:
-        
-        chunks = self.scripted_chunks or [
-            # Default fallback if unscripted
-            Chunk(kind="content", text="Fake response."),
-            Chunk(kind="usage", usage=Usage(input_tokens=10, output_tokens=5)),
-            Chunk(kind="done", finish_reason="stop"),
-        ]
+
+        self.stream_calls += 1
+        self.captured_tools.append(tools)
+        self.captured_messages.append(list(messages))
+
+        if self.fail_first_n > 0:
+            self.fail_first_n -= 1
+            from artemis.models.base import ProviderError
+
+            yield Chunk(
+                kind="error", error=ProviderError(code=self.fail_code, message="scripted failure")
+            )
+            return
+
+        if self.scripted_rounds:
+            if self.round_index < len(self.scripted_rounds):
+                chunks = self.scripted_rounds[self.round_index]
+                self.round_index += 1
+            else:
+                chunks = self.scripted_rounds[-1]
+        else:
+            chunks = self.scripted_chunks or [
+                # Default fallback if unscripted
+                Chunk(kind="content", text="Fake response."),
+                Chunk(kind="usage", usage=Usage(input_tokens=10, output_tokens=5)),
+                Chunk(kind="done", finish_reason="stop"),
+            ]
 
         # The provider owns entering the supplied scope for its stream. Calling
         # ``cancel_token.cancel()`` therefore cancels an in-flight await rather
